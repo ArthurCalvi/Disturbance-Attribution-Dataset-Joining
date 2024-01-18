@@ -1,8 +1,27 @@
 import pandas as pd
 import geopandas as gpd
 import numpy as np 
+from shapely.geometry import Polygon
+from scipy.spatial import ConvexHull
 from datetime import datetime, timedelta
+import math 
 from typing import List, Dict, Tuple, Set, Optional, Callable
+import scipy.stats as stats
+z = stats.norm.ppf(0.75)
+
+def calculate_temporal_centroid(start_date, end_date):
+    # Calculate the midpoint of the period
+    return start_date + (end_date - start_date) / 2
+
+def get_temporal_range(gdf):
+    # Assuming you have a 'start_date' and 'end_date' column
+    min_date = gdf['start_date'].min()
+    max_date = gdf['end_date'].max()
+    return min_date, max_date
+
+def is_temporally_similar(event1, event2, temporal_threshold):
+    # Check if temporal condition is met
+    return abs((event1.centroid_date - event2.centroid_date).days) < temporal_threshold
 
 def modify_dsbuffer(dsbuffer : Dict[str, int or None], granularity : int) -> Dict[str, int or None]:
     for key in dsbuffer.keys():
@@ -88,8 +107,8 @@ def is_dataset_valid(name: str, dataset: gpd.GeoDataFrame, ref=False) -> bool:
     
     return dataset 
 
-def exponential_decay(days: int, half_life: int) -> float:
-    return np.exp(-np.log(2) * days / half_life)
+# def exponential_decay(days: int, half_life: int) -> float:
+#     return np.exp(-np.log(2) * days / half_life)
 
 # Define a Gaussian function
 def gaussian(x, mean, std):
@@ -98,6 +117,14 @@ def gaussian(x, mean, std):
 # Define a step function
 def step(x, start, end):
     return np.where((x >= start) & (x <= end), 1, 0)
+
+def offset_gaussian(x, offset, decrease):
+    if x <= offset:
+        return 1  # Plateau value
+    else:
+        # Gaussian part
+        c = decrease / 2  # Standard deviation set so 2c equals decrease
+        return math.exp(-((x - offset) ** 2) / (2 * c ** 2))
 
 # Define a sigmoid function
 def sigmoid(x, x0, k):
@@ -125,12 +152,13 @@ dfunction = {
     'gaussian': gaussian,
     'step': step,
     'exponential_decay': exponential_decay,
-    'weighting_function': weighting_function
+    'weighting_function': weighting_function, 
+    'offset_gaussian': offset_gaussian
 }
 
 def combine_functions(funcs, scores):
     """Return a callable function combining the given functions with respective scores."""
-    return lambda x: sum(f(x) * score for f, score in zip(funcs, scores))
+    return lambda x: sum(f(x) * score for f, score in zip(funcs, scores)) 
 
 def get_combined_weighting(ddataset_profile, ddisturbance_profile, disturbance_classes_composition, t):
     """Return a callable function for combined spatial or temporal weighting."""
@@ -142,28 +170,10 @@ def get_combined_weighting(ddataset_profile, ddisturbance_profile, disturbance_c
     scores = [score for _, score in disturbance_funcs_scores]
     
     combined_disturbance_func = combine_functions(disturbance_funcs, scores)
-    return lambda x: min(dataset_func(x, **dataset_params), combined_disturbance_func(x))
-
-#spatial weights
-def spatial_weight(x : int, half_life=1500, offset=100) -> float:
-    """
-    x : distance in meters
-    """ 
-
-    if x <= offset:
-        return 1
-    else: 
-        return exponential_decay(x - offset, half_life=half_life)
-    
-#temporal weights
-def temporal_weight(x : int, half_life=365, offset=30) -> float:
-    """
-    x : distance in days
-    """
-    if x <= offset:
-        return 1
-    else:
-        return exponential_decay(x - offset, half_life=half_life)
+    # mean_std_gaussian = np.sum([s* p['std'] for (fn, p), s in disturbance_funcs_scores])
+    # reg = min(1, z *  mean_std_gaussian / list(dataset_params.values())[1])
+    # print('regularization parameter : ', reg)
+    return lambda x: (dataset_func(x, **dataset_params) + combined_disturbance_func(x))/2 #* reg
 
 def calculate_iou(poly1, poly2):
     intersection = poly1.intersection(poly2).area
@@ -204,9 +214,9 @@ def build_spatial_matrix(gdf: gpd.GeoDataFrame, dtypes_: Dict[str, str], final_w
                 # Calculate distance between points
                 distance = gdf.geometry.iloc[i].centroid.distance(gdf.geometry.iloc[j].centroid)
                 # Convert distance to similarity
-                
-                distance_matrix[i][j] = final_weighting_dict[gdf.iloc[i]['dataset']][gdf.iloc[i]['class']]['spatial'](distance)
-                distance_matrix[j][i] = final_weighting_dict[gdf.iloc[j]['dataset']][gdf.iloc[j]['class']]['spatial'](distance)
+                weight = (final_weighting_dict[gdf.iloc[i]['dataset']][gdf.iloc[i]['class']]['spatial'](distance) + final_weighting_dict[gdf.iloc[j]['dataset']][gdf.iloc[j]['class']]['spatial'](distance))/2
+                distance_matrix[i][j] = weight
+                distance_matrix[j][i] = weight
 
     else :
         # Calculate distances only for the upper triangle of the matrix
@@ -235,9 +245,9 @@ def build_spatial_matrix(gdf: gpd.GeoDataFrame, dtypes_: Dict[str, str], final_w
                         distance = calculate_d_star(area_j)
 
                 # print(f"distance between {gdf.iloc[i]['dataset']} and {gdf.iloc[j]['dataset']} is {distance}")
-                
-                distance_matrix[i][j] = final_weighting_dict[gdf.iloc[i]['dataset']][gdf.iloc[i]['class']]['spatial'](distance)
-                distance_matrix[j][i] = final_weighting_dict[gdf.iloc[j]['dataset']][gdf.iloc[j]['class']]['spatial'](distance)
+                weight = (final_weighting_dict[gdf.iloc[i]['dataset']][gdf.iloc[i]['class']]['spatial'](distance) + final_weighting_dict[gdf.iloc[j]['dataset']][gdf.iloc[j]['class']]['spatial'](distance))/2
+                distance_matrix[i][j] = weight 
+                distance_matrix[j][i] = weight 
 
         # Fill the diagonal with the maximum similarity score, e.g., 1
     np.fill_diagonal(distance_matrix, 1)
@@ -346,14 +356,18 @@ def build_temporal_matrix(data, final_weighting_dict):
     n = len(data)
     for i in range(n):
         for j in range(i + 1, n):
-            m[i][j] = final_weighting_dict[data.iloc[i]['dataset']][data.iloc[i]['class']]['temporal'](m[i][j])
-            m[j][i] = final_weighting_dict[data.iloc[j]['dataset']][data.iloc[j]['class']]['temporal'](m[j][i])
+            weight = (final_weighting_dict[data.iloc[i]['dataset']][data.iloc[i]['class']]['temporal'](m[i][j]) + final_weighting_dict[data.iloc[j]['dataset']][data.iloc[j]['class']]['temporal'](m[j][i]))/2
+            m[i][j] = weight
+            m[j][i] = weight
+
+    #fill diagonal with 1
+    np.fill_diagonal(m, 1)
 
     # return  np.array(list(map(lambda row: list(map(f, row)), m)))
     return m 
 
 
-def compute_similarity_matrix(data : gpd.GeoDataFrame, dtypes_: Dict[str, str], dcustom_similarity_function : Dict[str, Tuple[Callable, dict, float]], final_weighting_dict : Dict[str, dict]) \
+def compute_similarity_matrix(data : gpd.GeoDataFrame, dtypes_: Dict[str, str], dcustom_similarity_function : Dict[str, Tuple[Callable, dict, float]], final_weighting_dict : Dict[str, dict], weights=[1,1,1,1]) \
     -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     """Compute all the different similarity matrices and combine them into a single matrix
 
@@ -366,9 +380,6 @@ def compute_similarity_matrix(data : gpd.GeoDataFrame, dtypes_: Dict[str, str], 
     Returns:
         Tuple[np.ndarray, Dict[str, np.ndarray]] : the combined single similarity matrix and the dictionary containing all the similarity matrices
     """
-    weights = {'spatial': 1.0, 'temporal':1.0}
-    weights.update({name: w for name, (custom_function, args, w) in dcustom_similarity_function.items()})
-
     #MANDATORY SIMILARITY FACTORS
     
     #spatial 
@@ -383,7 +394,7 @@ def compute_similarity_matrix(data : gpd.GeoDataFrame, dtypes_: Dict[str, str], 
     for name, (custom_function, kwargs, _) in dcustom_similarity_function.items():
         matrices[name] = np.nan_to_num(build_custom_matrix(data, custom_function, kwargs), nan=0).clip(0,1)
 
-    return np.average(np.array(list(matrices.values())), axis=0, weights=list(weights.values())), matrices
+    return np.average(np.array(list(matrices.values())), axis=0, weights=weights), matrices
 
 from sklearn.cluster import SpectralClustering
 
@@ -421,6 +432,109 @@ def get_predominant_class(l : List[Tuple[str, float, float]]) -> str:
         return 'multi-factor'
     
 from collections import defaultdict
+
+# def get_cluster(data : gpd.GeoDataFrame, dcustom_similarity_function : Dict[str, Tuple[Callable, dict, float]],
+#                  dtypes_: Dict[str, str], final_weighting_dict : Dict[str, dict],
+#                  doa : Dict[str, float], dclass_score : Dict[str, Dict[str, Dict[str, float]]], threshold=0.5) -> gpd.GeoDataFrame:
+    
+#     """Get the cluster from a GeoDataFrame
+
+#     Args:
+#         data (gpd.GeoDataFrame): GeoDataFrame containing the data to be compared
+#         dcustom_similarity_function (Dict[str, Tuple[Callable, dict, float]]): dictionary containing the custom similarity functions, the optional arguments and the weight associated with each function
+#         dtypes_ (Dict[str, str]): dictionary of dataset types
+#         doa (Dict[str, float]): dictionary of scaling factors
+#         threshold (float, optional): threshold for the similarity score. Defaults to 0.5.
+    
+#     Returns:
+#         gpd.GeoDataFrame: cluster
+#     """
+
+#     #build dclass as a dict of list containing the first attribute of the dict of dclass_score
+#     dclass = {dataset: {k: list(v.keys()) for k, v in dclass_score[dataset].items()} for dataset in dclass_score}
+
+#     similarity_matrix, _ = compute_similarity_matrix(data, dtypes_=dtypes_, dcustom_similarity_function=dcustom_similarity_function, final_weighting_dict=final_weighting_dict)
+
+
+#     #number of unique class,dataset - maximum number of entries of a final class among the datasets + 1
+#     dfinal_class = {}
+#     dfinal_class_datasets = defaultdict(list)
+#     for i in range(1, len(data)):
+#         dataset = data.iloc[i].dataset
+#         cls = dclass[dataset][data.iloc[i]['class']]
+#         for c in cls:
+#             if dataset not in dfinal_class_datasets[c]:
+#                 dfinal_class_datasets[c].append(dataset)
+#                 dfinal_class[c] = dfinal_class.get(c, 0) + 1
+
+#     uc = len(data.iloc[1:].groupby(['class', 'dataset']))
+#     n_clusters = max(1, uc - max(dfinal_class.values()) + 1)
+
+#     # Perform spectral clustering
+#     sc = SpectralClustering(n_clusters=n_clusters, affinity='precomputed', assign_labels='kmeans')
+#     labels = sc.fit_predict(similarity_matrix)
+#     data['labels'] = labels
+
+#     # Unique cluster labels
+#     cluster_labels = data['labels'].iloc[1:]
+#     unique_labels = np.unique(cluster_labels)
+
+#     # Dictionary to hold the sum of scores and the count for each cluster
+#     cluster_sums = {label: {'sum': 0, 'count': 0, 'class': []} for label in unique_labels}
+
+#     # Sum scores and counts for each cluster
+#     for i, (score, label) in enumerate(zip(similarity_matrix[0][1:], cluster_labels)):
+#         ws = score * doa[data['dataset'].iloc[i+1]]
+#         cluster_sums[label]['sum'] += ws 
+#         cluster_sums[label]['count'] += 1
+#         cluster_sums[label]['class'].extend([(c,ws,comp) for c, comp in dclass_score[data['dataset'].iloc[i+1]][data['class'].iloc[i+1]].items()])
+
+#     # Compute average score for each cluster
+#     average_scores = {label: (cluster_sums[label]['sum'] / cluster_sums[label]['count']) for label in cluster_sums}
+#     timeperiod_group = {}
+#     indexes_group = {}
+#     data_ = data.iloc[1:].copy()
+#     data_['start_date'] = pd.to_datetime(data_['start_date'], format='%Y-%m-%d')
+#     data_['end_date'] = pd.to_datetime(data_['end_date'], format='%Y-%m-%d')
+
+#     #get date of the median start and end date for each cluster
+#     for group in data_['labels'].unique():
+#         group_df = data_[data_['labels'] == group]
+#         min_start = group_df['start_date'].mean()
+#         max_end = group_df['end_date'].mean()
+#         timeperiod_group[group] = (min_start, max_end)
+#         indexes_group[group] = group_df.index.tolist()
+
+
+
+#     for label in average_scores:
+#         average_scores[label] = (average_scores[label], get_predominant_class(cluster_sums[label]['class']), timeperiod_group[label], indexes_group[label])
+
+#     # Filter the dictionary based on similarity score > 0.5
+#     filtered_d = {k: v for k, v in average_scores.items() if v[0] > threshold}
+
+#     # Convert the filtered dictionary into a DataFrame
+#     df = pd.DataFrame.from_dict(filtered_d, orient='index', columns=['Similarity', 'Class', 'TimePeriod', 'Indexes'])
+
+#     # Ensure the dates are in the correct format (if they are strings)
+#     df['Start_Date'], df['End_Date'] = zip(*df['TimePeriod'])
+#     df = df.drop('TimePeriod', axis=1)
+
+#     # Convert the string dates to datetime objects if needed
+#     df['Start_Date'] = pd.to_datetime(df['Start_Date'], dayfirst=True)
+#     df['End_Date'] = pd.to_datetime(df['End_Date'], dayfirst=True)
+
+#     # df[['geometry', 'detection_year','tree_type', 'essence', 'index_reference']] = data.iloc[0][['geometry', 'year','tree_type', 'essence', 'index_reference']]
+#     df['index_reference'] = data.iloc[0]['index_reference']
+#     return df.sort_values(by='Similarity', ascending=False)
+
+# def wrapper_get_cluster(data: gpd.GeoDataFrame, dtypes_, dcustom_similarity_function, doa, dclass_score, final_weighting_dict, threshold):
+#     """Wrapper function for get_cluster"""
+
+#     if len(data) == 1:
+#         return pd.DataFrame({'Similarity':[0.], 'Class':['Unknown'], 'Start_Date':[data.iloc[0].start_date], 'End_Date':[data.iloc[0].end_date], 'index_reference':[data.iloc[0].index_reference]})
+#     else:
+#         return get_cluster(data, dtypes_=dtypes_, dcustom_similarity_function=dcustom_similarity_function, doa=doa, dclass_score=dclass_score, final_weighting_dict=final_weighting_dict, threshold=threshold)
 
 def get_cluster(data : gpd.GeoDataFrame, dcustom_similarity_function : Dict[str, Tuple[Callable, dict, float]],
                  dtypes_: Dict[str, str], final_weighting_dict : Dict[str, dict],
@@ -465,7 +579,7 @@ def get_cluster(data : gpd.GeoDataFrame, dcustom_similarity_function : Dict[str,
     data['labels'] = labels
 
     # Unique cluster labels
-    cluster_labels = data['labels'].iloc[1:]
+    cluster_labels = data['labels']
     unique_labels = np.unique(cluster_labels)
 
     # Dictionary to hold the sum of scores and the count for each cluster
@@ -481,25 +595,29 @@ def get_cluster(data : gpd.GeoDataFrame, dcustom_similarity_function : Dict[str,
     # Compute average score for each cluster
     average_scores = {label: (cluster_sums[label]['sum'] / cluster_sums[label]['count']) for label in cluster_sums}
     timeperiod_group = {}
-    data_ = data.iloc[1:].copy()
+    indexes_group = {}
+    data_ = data.copy()
     data_['start_date'] = pd.to_datetime(data_['start_date'], format='%Y-%m-%d')
     data_['end_date'] = pd.to_datetime(data_['end_date'], format='%Y-%m-%d')
 
     #get date of the median start and end date for each cluster
     for group in data_['labels'].unique():
         group_df = data_[data_['labels'] == group]
-        min_start = group_df['start_date'].min()
-        max_end = group_df['end_date'].max()
+        min_start = group_df['start_date'].mean()
+        max_end = group_df['end_date'].mean()
         timeperiod_group[group] = (min_start, max_end)
+        indexes_group[group] = group_df.index.tolist()
+
+
 
     for label in average_scores:
-        average_scores[label] = (average_scores[label], get_predominant_class(cluster_sums[label]['class']), timeperiod_group[label])
+        average_scores[label] = (average_scores[label], get_predominant_class(cluster_sums[label]['class']), timeperiod_group[label], indexes_group[label])
 
     # Filter the dictionary based on similarity score > 0.5
     filtered_d = {k: v for k, v in average_scores.items() if v[0] > threshold}
 
     # Convert the filtered dictionary into a DataFrame
-    df = pd.DataFrame.from_dict(filtered_d, orient='index', columns=['Similarity', 'Class', 'TimePeriod'])
+    df = pd.DataFrame.from_dict(filtered_d, orient='index', columns=['Similarity', 'Class', 'TimePeriod', 'Indexes'])
 
     # Ensure the dates are in the correct format (if they are strings)
     df['Start_Date'], df['End_Date'] = zip(*df['TimePeriod'])
@@ -509,8 +627,6 @@ def get_cluster(data : gpd.GeoDataFrame, dcustom_similarity_function : Dict[str,
     df['Start_Date'] = pd.to_datetime(df['Start_Date'], dayfirst=True)
     df['End_Date'] = pd.to_datetime(df['End_Date'], dayfirst=True)
 
-    # df[['geometry', 'detection_year','tree_type', 'essence', 'index_reference']] = data.iloc[0][['geometry', 'year','tree_type', 'essence', 'index_reference']]
-    df['index_reference'] = data.iloc[0]['index_reference']
     return df.sort_values(by='Similarity', ascending=False)
 
 def wrapper_get_cluster(data: gpd.GeoDataFrame, dtypes_, dcustom_similarity_function, doa, dclass_score, final_weighting_dict, threshold):

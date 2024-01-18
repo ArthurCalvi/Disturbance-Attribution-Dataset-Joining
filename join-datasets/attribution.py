@@ -1,4 +1,4 @@
-__version__ = '0.2'
+__version__ = '0.3'
 
 import warnings
 warnings.filterwarnings('ignore') 
@@ -8,7 +8,6 @@ from typing import List, Dict, Tuple, Callable
 import geopandas as gpd
 import dask_geopandas as dgpd
 import warnings
-from collections import defaultdict
 import pandas as pd
 import dask.dataframe as dd
 from datetime import datetime, timedelta
@@ -17,9 +16,11 @@ from itertools import islice
 from tqdm import tqdm
 import numpy as np 
 import os 
+import contextily as ctx
+from matplotlib_scalebar.scalebar import ScaleBar
     
-from utils import get_spatial_join, get_subset_dataset, is_dataset_valid, classify_source_type, wrapper_get_cluster, modify_dsbuffer, temporal_weight, spatial_weight, calculate_d_star, get_combined_weighting, dfunction
-
+from utils import get_spatial_join, get_subset_dataset, is_dataset_valid, classify_source_type, wrapper_get_cluster, modify_dsbuffer, calculate_d_star, get_combined_weighting, dfunction
+from constants import custom_color_mapping
 
 class Attribution:
     
@@ -95,7 +96,7 @@ class Attribution:
 
         self.final_weighting_dict = final_weighting_dict
 
-    def plot_weighting_functions(self):
+    def plot_weighting_functions(self, title=False):
 
         """ Plot the weighting functions for each dataset
         """
@@ -106,17 +107,21 @@ class Attribution:
         plt.rcParams["font.family"] = "Times New Roman"
 
         #plot functions of ddataset profile 
-        fig, axes = plt.subplots(2, len(self.ddataset_profile), figsize=(14, 5), sharey=True)
-        for i, (dataset, profile_dict) in enumerate(self.ddataset_profile.items()):
+        dp = {k:v for k,v in self.ddataset_profile.items() if k != 'reference'}
+        n = len(dp)
+        fig1, axes = plt.subplots(2, n, figsize=(int(n * 1.5), 4), sharey=True)
+        for i, (dataset, profile_dict) in enumerate(dp.items()):
             ax = axes[:,i]
             if i == 0:
                 ax[0].set_ylabel('Spatial Weighting [1]')
                 ax[0].set_xlabel('Distance (m)')
                 ax[1].set_ylabel('Temporal Weighting [1]')
                 ax[1].set_xlabel('Time (days)')
-            ax[0].plot(x_spatial, [dfunction[profile_dict['spatial'][0]](t, **profile_dict['spatial'][1]) for t in x_spatial], label=dataset, alpha=0.75)
-            ax[1].plot(x_temporal, [dfunction[profile_dict['temporal'][0]](t, **profile_dict['temporal'][1]) for t in x_temporal], alpha=0.75)
-            ax[0].set_title(dataset)
+            ax[0].plot(x_spatial, [dfunction[profile_dict['spatial'][0]](t, **profile_dict['spatial'][1]) for t in x_spatial], label=dataset, alpha=0.75, color=f'C{i}')
+            ax[1].plot(x_temporal, [dfunction[profile_dict['temporal'][0]](t, **profile_dict['temporal'][1]) for t in x_temporal], alpha=0.75, color=f'C{i}')
+            if dataset == 'reference':
+                dataset = 'Hansen'
+            ax[0].set_title(dataset.upper())
 
             for a in ax:
                 a.grid()
@@ -124,11 +129,14 @@ class Attribution:
                 a.spines['top'].set_visible(False)
                 a.spines['right'].set_visible(False)
 
+        if title:
+            fig1.suptitle('Spatial and Temporal certainties linked to the dataset and/or the algorithm used.')
         plt.tight_layout()
         plt.show()
 
         #plot functions of ddisturbance profile
-        fig, axes = plt.subplots(2, len(self.ddisturbance_profile), figsize=(12, 5), sharey=True)
+        n = len(self.ddisturbance_profile)
+        fig2, axes = plt.subplots(2, n, figsize=(int(n * 1.5), 4), sharey=True)
 
         x_spatial = np.linspace(0, 7000, 1000)
         x_temporal = np.linspace(0, 5*365, 1000)
@@ -140,8 +148,8 @@ class Attribution:
                 ax[0].set_xlabel('Distance (m)')
                 ax[1].set_ylabel('Temporal Weighting [1]')
                 ax[1].set_xlabel('Time (days)')
-            ax[0].plot(x_spatial, [dfunction[profile_dict['spatial'][0]](t, **profile_dict['spatial'][1]) for t in x_spatial], label=disturbance_class, alpha=0.75)
-            ax[1].plot(x_temporal, [dfunction[profile_dict['temporal'][0]](t, **profile_dict['temporal'][1]) for t in x_temporal], alpha=0.75)
+            ax[0].plot(x_spatial, [dfunction[profile_dict['spatial'][0]](t, **profile_dict['spatial'][1]) for t in x_spatial], label=disturbance_class, alpha=0.75, color=custom_color_mapping[disturbance_class])
+            ax[1].plot(x_temporal, [dfunction[profile_dict['temporal'][0]](t, **profile_dict['temporal'][1]) for t in x_temporal], alpha=0.75, color=custom_color_mapping[disturbance_class])
             ax[0].set_title(disturbance_class)
 
             for a in ax:
@@ -150,13 +158,18 @@ class Attribution:
                 a.spines['top'].set_visible(False)
                 a.spines['right'].set_visible(False)
 
+        if title:
+            fig2.suptitle('Spatial and Temporal extent of disturbances.')
         plt.tight_layout()
         plt.show()
 
         #plot functions of final weighting dict
-        fig, axes = plt.subplots(2, len(self.final_weighting_dict), figsize=(14, 5), sharey=True)
+        fw = {k:v for k,v in self.final_weighting_dict.items() if k != 'reference'}
+        n = len(fw)
+        fig3, axes = plt.subplots(2, n, figsize=(int(n * 1.5), 4), sharey=True)
+        
+        for i, (dataset, class_dict) in enumerate(fw.items()):
 
-        for i, (dataset, class_dict) in enumerate(self.final_weighting_dict.items()):
             ax = axes[:,i]
             if i == 0:
                 ax[0].set_ylabel('Spatial Weighting [1]')
@@ -168,7 +181,10 @@ class Attribution:
                 ax[0].plot(x_spatial, [weighting_dict['spatial'](t) for t in x_spatial], label=class_name, alpha=0.75)
                 ax[1].plot(x_temporal, [weighting_dict['temporal'](t) for t in x_temporal], alpha=0.75)
                 ax[0].legend(fontsize=8)
-            ax[0].set_title(dataset)
+            
+            if dataset == 'reference':
+                dataset = 'Hansen'
+            ax[0].set_title(dataset.upper())
 
             for a in ax:
                 a.grid()
@@ -176,8 +192,78 @@ class Attribution:
                 a.spines['top'].set_visible(False)
                 a.spines['right'].set_visible(False)
 
+        if title:
+            fig3.suptitle('Spatial and temporal detection profiles of disturbances')
         plt.tight_layout()
         plt.show()
+
+        return fig1, fig2, fig3
+
+    def plot_dataset_examples(self):
+        
+        data = []
+        for dataset, classes in self.dclass_score.items():
+            for class_name, scores in classes.items():
+                for final_class, score in scores.items():
+                    data.append({'Dataset': dataset, 'Class': class_name, 'Final Class': final_class, 'Score': score})
+
+        df = pd.DataFrame(data)
+
+        ddataset = {name:dataset for name, dataset in self.ddataset.items()}
+        ddataset['reference'] = self.reference
+
+        # Creating a figure with 4 columns and 4 rows for the 8 datasets
+        fig, axs = plt.subplots(nrows=2, ncols=4, figsize=(10, 5))
+
+        # Grouping by 'Dataset' and enumerating over these groups
+        for i, (dataset, dataset_df) in enumerate(df.groupby('Dataset')):
+            # Calculating the position for the plots in the grid
+            col = i % 4
+            row = i // 4 
+
+            if col == 0:
+                # Setting up the labels for the rows
+                axs[row, col].set_ylabel('Data example')
+                # axs[row + 1, col].set_ylabel('Composition of dataset classes')
+
+            # Setting up the plots
+            d = ddataset[dataset].sample(n=1)
+            #square buffer around the centroid of the polygon
+            area = d.iloc[0].geometry.area
+            if area > 10000:
+                ed = np.sqrt(area / np.pi)
+            else : 
+                ed = 150
+            
+            extent = d.centroid.buffer(3 * ed, cap_style = 3).total_bounds
+            #define xlim and ylim
+            xlim = (extent[0], extent[2])
+            ylim = (extent[1], extent[3])
+            axs[row, col].set_xlim(xlim)
+            axs[row, col].set_ylim(ylim)
+            axs[row, col].add_artist(ScaleBar(1))
+            #add scale bar
+            d.plot(ax=axs[row, col], alpha=0.5, edgecolor='k')
+            ctx.add_basemap(axs[row, col], crs=d.crs.to_string(), source=ctx.providers.Esri.WorldImagery, attribution=False)
+
+            #add tex annotation of d['class'] at the centroid 
+            if dataset == 'reference':
+                dataset = 'Hansen'
+                txt = 'reference' + '\n' + str(d['year'].iloc[0])
+            else :
+                txt = d['class'].iloc[0]  + '\n' + d['start_date'].dt.strftime('%Y-%m-%d').iloc[0] + '\n' + d['end_date'].dt.strftime('%Y-%m-%d').iloc[0]
+            axs[row, col].text(d.centroid.x, d.centroid.y, txt, fontsize=10, color='white')
+            axs[row, col].axis('off')
+            
+            #annotate name of the dataste in the left top corner with transAx coordinates between 0 and 1
+            axs[row, col].annotate(dataset.upper(), xy=(0.05, 0.95), xycoords='axes fraction', fontsize=12, ha='left', va='top', color='white')
+
+
+        # Displaying the updated template
+        plt.tight_layout()
+        plt.show()
+
+        return fig
 
 
 
@@ -268,8 +354,6 @@ class Attribution:
         print( f'number of groups : {len(groups)}, estimated time (4 cores) = {len(groups)/1e4 * 5} min')
 
       
-        # dcustom_similarity_function = {'tree specie relatedness': (compute_tree_coherence, {}, 1.0), 'class relatedness': (compute_class_similarity, {'dclass_score': dclass_score}, 1.0)}
-
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             for i in tqdm(range(0, len(groups), 10000)):
@@ -285,7 +369,7 @@ class Attribution:
 
         list_df = []
         for file in os.listdir(dir_):
-            if file.startswith('tmp_cluster'):
+            if file.startswith('tmp_cluster') and file.endswith(f'g{self.granularity}_v{self.version}.parquet'):
                 list_df.append(pd.read_parquet(os.path.join(dir_, file)))
         df = pd.concat(list_df, axis=0)
 

@@ -1,6 +1,6 @@
 DCLASS_SCORE = {
     'senfseidl': {
-        'Storm,Biotic': {'biotic-mortality':0.22, 'storm':0.44, 'biotic-dieback':0.22, 'drought-dieback':0.05, 'fire':0.02, 'anthropogenic':0.05},
+        'Storm,Biotic': {'biotic-mortality':0.12, 'storm':0.35, 'biotic-dieback':0.35, 'drought-dieback':0.12, 'fire':0.02, 'anthropogenic':0.04},
         'Fire' : {'fire':0.87, 'storm':0.1, 'biotic-dieback':0.01, 'drought-dieback':0.01, 'anthropogenic':0.01},
         'Other' : {'storm':0.06, 'fire':0.03, 'biotic-mortality':0.13, 'biotic-dieback':0.13, 'drought-dieback':0.13, 'anthropogenic':0.52}
     },
@@ -38,6 +38,15 @@ DCLASS_SCORE = {
     'reference': {
         'None':{'biotic-mortality':0., 'biotic-dieback':0., 'storm':0., 'fire':0., 'drought-dieback':0., 'anthropogenic':0.},
     }}
+
+custom_color_mapping = {
+    'fire': 'orangered',
+    'storm': 'royalblue',
+    'biotic-dieback': 'gold',
+    'biotic-mortality': 'darkgoldenrod',  # Yellow-brown
+    'drought-dieback': 'darkkhaki',
+    'anthropogenic': 'cadetblue'  # Light blue/grey
+}
 
 # DCLASS ={
 #     'senfseidl': {
