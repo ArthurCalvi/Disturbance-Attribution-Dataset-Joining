@@ -72,6 +72,7 @@ class Attribution:
             t, p95 = classify_source_type(dataset, area_threshold= np.pi * self.granularity ** 2, name=name) #(model -> circle) in km2
             self.dtypes_[name] = t
             self.dp95[name] = p95
+
         t, _ = classify_source_type(reference, area_threshold= np.pi * self.granularity ** 2) #(model -> circle) in km2
         self.dtypes_['reference'] = t
         

@@ -881,3 +881,35 @@ def wrapper_get_cluster(data: gpd.GeoDataFrame, dtypes_, dcustom_similarity_func
     else:
         return get_cluster(data, dtypes_=dtypes_, dcustom_similarity_function=dcustom_similarity_function, doa=doa, dclass_score=dclass_score, final_weighting_dict=final_weighting_dict, threshold=threshold, weights=weights) 
 
+
+#NOISE
+import geopandas as gpd
+from shapely.geometry import Polygon
+from shapely.affinity import translate
+
+def translate_polygon(df, polygon_column, sigma=100):
+    def shift_polygon(polygon):
+        # Random shifts in meters
+        x_shift = np.random.normal(0, sigma)  # Longitude shift
+        y_shift = np.random.normal(0, sigma)  # Latitude shift
+        return translate(polygon, xoff=x_shift, yoff=y_shift)
+
+    df[polygon_column] = df[polygon_column].apply(shift_polygon)
+    return df
+
+import pandas as pd
+import numpy as np
+from datetime import timedelta
+
+def translate_time(df, start_date_column, end_date_column, sigma=90):
+    # Applying a Gaussian disturbance with mean = 0 and std = 90 days
+    disturbance_delta = np.random.normal(0, sigma, size=len(df))
+    
+    df[start_date_column] = df[start_date_column] + pd.to_timedelta(disturbance_delta, unit='d')
+    df[end_date_column] = df[end_date_column] + pd.to_timedelta(disturbance_delta, unit='d')
+
+    #format dates as just year, month and day
+    df[start_date_column] = df[start_date_column].dt.strftime('%Y-%m-%d')
+    df[end_date_column] = df[end_date_column].dt.strftime('%Y-%m-%d')
+    return df
+

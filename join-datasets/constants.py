@@ -35,6 +35,9 @@ DCLASS_SCORE = {
     'bdiff': {
         'Fire':{'fire':1.}
     },
+    'firepolygons': {
+        'Fire':{'fire':1.}
+    },
     'reference': {
         'None':{'biotic-mortality':0., 'biotic-dieback':0., 'storm':0., 'fire':0., 'drought-dieback':0., 'anthropogenic':0.},
     }}
