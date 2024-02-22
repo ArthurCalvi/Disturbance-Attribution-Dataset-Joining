@@ -255,7 +255,89 @@ def build_spatial_matrix(gdf: gpd.GeoDataFrame, dtypes_: Dict[str, str], final_w
 
 #import fuzz
 from thefuzz import fuzz 
-def compute_tree_coherence(row1 : pd.Series, row2 : pd.Series) -> float:
+# def compute_tree_coherence(row1 : pd.Series, row2 : pd.Series) -> float:
+#     """Compute the tree coherence between two rows
+
+#     Args:
+#         row1 (pd.Series): first row
+#         row2 (pd.Series): second row
+
+#     Returns:
+#         float: tree coherence
+#     """
+
+#     for essence1 in row1['essence'].split(','):
+#         for essence2 in row2['essence'].split(','):
+#             if fuzz.token_set_ratio(essence1.lower(), essence2.lower()) > 80:
+#                 return 1
+        
+#     if row1['tree_type'].lower() == row2['tree_type'].lower():
+#         return 0.75 
+    
+#     if row1['tree_type'].lower() == 'mixed' or row2['tree_type'].lower() == 'mixed':
+#         return 0.5
+
+#     return 0.25 
+
+
+# def compute_class_similarity(row1 : pd.Series, row2 : pd.Series, dclass_score : Dict[str, Dict[str, Dict[str, float]]] ) -> float:
+#     """Compute the similarity between two classes
+
+#     Args:
+#         row1 (pd.Series): first row
+#         row2 (pd.Series): second row
+#         dclass_score (Dict[str, Dict[str, Dict[str, float]]]): dictionary containing the class scores
+    
+#     Returns:
+#         float: similarity score
+#     """
+
+#     # If both classes are from the same dataset and have the same class, return 1.0
+#     if row1['dataset'] == row2['dataset'] and row1['class'] == row2['class']:
+#         return 1.0
+
+#     # Get the score dictionaries for the two classes
+#     scores1 = dclass_score.get(row1['dataset'], {}).get(row1['class'], {})
+#     scores2 = dclass_score.get(row2['dataset'], {}).get(row2['class'], {})
+    
+#     # Find common final classes between the two classes
+#     common_final_classes = set(scores1.keys()).intersection(set(scores2.keys()))
+    
+#     # Calculate the sum of the means of the scores for each common final class
+#     similarity_score = sum((scores1[final_class] + scores2[final_class]) / 2 for final_class in common_final_classes)
+    
+#     return similarity_score
+
+import networkx as nx
+import numpy as np
+from tqdm import tqdm 
+
+def build_graph(dataset_loc, dataset_glob,  sindex, spatial_threshold, temporal_threshold, attribution, G=None):
+    
+    if G is None:
+        G = nx.Graph()
+        # Construct the similarity matrix using spatial index
+    for event1 in tqdm(dataset_loc.itertuples(index=True)):
+        i = event1.Index
+        # Find nearby events within spatial threshold
+        possible_matches_index = list(sindex.intersection(event1.geometry.buffer(spatial_threshold).bounds))
+        possible_matches = dataset_glob.iloc[possible_matches_index]
+
+        for event2 in possible_matches.itertuples(index=True):
+            j = event2.Index
+            if i != j and is_temporally_similar(event1, event2, temporal_threshold):
+                ds = event1.geometry.centroid.distance(event2.geometry.centroid)
+                dt = abs(event1.centroid_date - event2.centroid_date).days 
+                we = compute_tree_coherence(event1, event2, filter_class, attr_class='_3')
+                wc = compute_class_similarity(event1, event2, attribution.dclass_score, attr_class='_3')
+                ws = np.mean([attribution.final_weighting_dict[event1.dataset][event1._3]['spatial'](ds), attribution.final_weighting_dict[event2.dataset][event2._3]['spatial'](ds)])
+                wt = np.mean([attribution.final_weighting_dict[event1.dataset][event1._3]['temporal'](dt), attribution.final_weighting_dict[event2.dataset][event2._3]['temporal'](dt)])
+                G.add_edge(i, j, ws=ws, wt=wt, we=we, wc=wc)
+    
+    return G 
+
+from thefuzz import fuzz 
+def compute_tree_coherence(row1 : pd.Series, row2 : pd.Series, filter_class : dict, attr_class='class') -> float:
     """Compute the tree coherence between two rows
 
     Args:
@@ -265,22 +347,24 @@ def compute_tree_coherence(row1 : pd.Series, row2 : pd.Series) -> float:
     Returns:
         float: tree coherence
     """
-
-    for essence1 in row1['essence'].split(','):
-        for essence2 in row2['essence'].split(','):
+    if getattr(row1, attr_class) in filter_class and getattr(row2, attr_class) in filter_class:
+        return 1.
+    
+    for essence1 in row1.essence.split(','):
+        for essence2 in row2.essence.split(','):
             if fuzz.token_set_ratio(essence1.lower(), essence2.lower()) > 80:
                 return 1
         
-    if row1['tree_type'].lower() == row2['tree_type'].lower():
+    if row1.tree_type.lower() == row2.tree_type.lower():
         return 0.75 
     
-    if row1['tree_type'].lower() == 'mixed' or row2['tree_type'].lower() == 'mixed':
+    if row1.tree_type.lower() == 'mixed' or row2.tree_type.lower() == 'mixed':
         return 0.5
 
     return 0.25 
 
-
-def compute_class_similarity(row1 : pd.Series, row2 : pd.Series, dclass_score : Dict[str, Dict[str, Dict[str, float]]] ) -> float:
+from typing import Dict
+def compute_class_similarity(row1 : pd.Series, row2 : pd.Series, dclass_score : Dict[str, Dict[str, Dict[str, float]]], attr_class = 'class' ) -> float:
     """Compute the similarity between two classes
 
     Args:
@@ -293,12 +377,12 @@ def compute_class_similarity(row1 : pd.Series, row2 : pd.Series, dclass_score : 
     """
 
     # If both classes are from the same dataset and have the same class, return 1.0
-    if row1['dataset'] == row2['dataset'] and row1['class'] == row2['class']:
+    if row1.dataset == row2.dataset and getattr(row1, attr_class) == getattr(row2, attr_class):
         return 1.0
 
     # Get the score dictionaries for the two classes
-    scores1 = dclass_score.get(row1['dataset'], {}).get(row1['class'], {})
-    scores2 = dclass_score.get(row2['dataset'], {}).get(row2['class'], {})
+    scores1 = dclass_score.get(row1.dataset, {}).get(getattr(row1, attr_class), {})
+    scores2 = dclass_score.get(row2.dataset, {}).get(getattr(row2, attr_class), {})
     
     # Find common final classes between the two classes
     common_final_classes = set(scores1.keys()).intersection(set(scores2.keys()))
@@ -307,6 +391,7 @@ def compute_class_similarity(row1 : pd.Series, row2 : pd.Series, dclass_score : 
     similarity_score = sum((scores1[final_class] + scores2[final_class]) / 2 for final_class in common_final_classes)
     
     return similarity_score
+
     
 # Function to build the similarity matrix
 def build_custom_matrix(df : pd.DataFrame, custom_similarity_function : Callable, kwargs: dict) -> np.ndarray:
@@ -639,26 +724,26 @@ from collections import defaultdict
 
 from tqdm import tqdm
 import networkx as nx
-def build_graph(dataset_loc, dataset_glob,  sindex, spatial_threshold, temporal_threshold, attribution, G=None):
+# def build_graph(dataset_loc, dataset_glob,  sindex, spatial_threshold, temporal_threshold, attribution, G=None):
     
-    if G is None:
-        G = nx.Graph()
-        # Construct the similarity matrix using spatial index
-    for event1 in tqdm(dataset_loc.itertuples(index=True)):
-        i = event1.Index
-        # Find nearby events within spatial threshold
-        possible_matches_index = list(sindex.intersection(event1.geometry.buffer(spatial_threshold).bounds))
-        possible_matches = dataset_glob.iloc[possible_matches_index]
+#     if G is None:
+#         G = nx.Graph()
+#         # Construct the similarity matrix using spatial index
+#     for event1 in tqdm(dataset_loc.itertuples(index=True)):
+#         i = event1.Index
+#         # Find nearby events within spatial threshold
+#         possible_matches_index = list(sindex.intersection(event1.geometry.buffer(spatial_threshold).bounds))
+#         possible_matches = dataset_glob.iloc[possible_matches_index]
 
-        for event2 in possible_matches.itertuples(index=True):
-            j = event2.Index
-            if i != j and is_temporally_similar(event1, event2, temporal_threshold):
-                ds = event1.geometry.centroid.distance(event2.geometry.centroid)
-                dt = abs(event1.centroid_date - event2.centroid_date).days 
-                weight = np.mean([attribution.final_weighting_dict[event1.dataset][event1._3]['spatial'](ds), attribution.final_weighting_dict[event2.dataset][event2._3]['spatial'](ds), attribution.final_weighting_dict[event1.dataset][event1._3]['temporal'](dt), attribution.final_weighting_dict[event2.dataset][event2._3]['temporal'](dt)])
-                G.add_edge(i, j, weight = weight)
+#         for event2 in possible_matches.itertuples(index=True):
+#             j = event2.Index
+#             if i != j and is_temporally_similar(event1, event2, temporal_threshold):
+#                 ds = event1.geometry.centroid.distance(event2.geometry.centroid)
+#                 dt = abs(event1.centroid_date - event2.centroid_date).days 
+#                 weight = np.mean([attribution.final_weighting_dict[event1.dataset][event1._3]['spatial'](ds), attribution.final_weighting_dict[event2.dataset][event2._3]['spatial'](ds), attribution.final_weighting_dict[event1.dataset][event1._3]['temporal'](dt), attribution.final_weighting_dict[event2.dataset][event2._3]['temporal'](dt)])
+#                 G.add_edge(i, j, weight = weight)
     
-    return G 
+#     return G 
 
 from collections import defaultdict
 from typing import Callable, Dict, Tuple
@@ -764,7 +849,7 @@ def get_spatial_polygon(cluster : gpd.GeoDataFrame, final_weighting_dict: Dict[s
         threshold = np.percentile(average_profile, 90)
 
         plt.ioff()
-        contour = plt.contour(xx, yy, average_profile, levels=[threshold], colors='k', hold='on')
+        contour = plt.contour(xx, yy, average_profile, levels=[threshold], colors='k', ) #hold='on'
         plt.close()
         polygons = []
         for path in contour.collections[0].get_paths():
@@ -913,3 +998,418 @@ def translate_time(df, start_date_column, end_date_column, sigma=90):
     df[end_date_column] = df[end_date_column].dt.strftime('%Y-%m-%d')
     return df
 
+#V2
+from thefuzz import fuzz 
+#import namedtuple
+from collections import namedtuple
+import numpy as np 
+def build_temporal_matrix_v2(data, final_weighting_dict):
+
+    #temporal
+    start_date_matrix = data['start_date'].values.astype('datetime64[D]').reshape(-1, 1)
+    day_diff_matrix_sd = np.abs((start_date_matrix - start_date_matrix.T) / np.timedelta64(1, 'D'))
+  
+    end_date_matrix = data['end_date'].values.astype('datetime64[D]').reshape(-1, 1)
+    day_diff_matrix_ed = np.abs((end_date_matrix - end_date_matrix.T) / np.timedelta64(1, 'D'))
+
+    m = (day_diff_matrix_sd + day_diff_matrix_ed)/2
+
+    n = len(data)
+    rows = list(data.itertuples(index=False))
+    for i in range(n):
+        for j in range(i + 1, n):
+            weight = (final_weighting_dict[rows[i].dataset][rows[i].cause]['temporal'](m[i][j]) + final_weighting_dict[rows[j].dataset][rows[j].cause]['temporal'](m[j][i]))/2
+            m[i][j] = weight
+            m[j][i] = weight
+
+    #fill diagonal with 1
+    np.fill_diagonal(m, 1)
+
+    # return  np.array(list(map(lambda row: list(map(f, row)), m)))
+    return m 
+
+def compute_tree_coherence_v2(row1 : namedtuple, row2 : namedtuple, filter_cause : dict) -> float:
+    """Compute the tree coherence between two rows
+
+    Args:
+        row1 (namedtuple): first row
+        row2 (namedtuple): second row
+
+    Returns:
+        float: tree coherence
+    """
+    if row1.cause in filter_cause and row2.cause in filter_cause:
+        return 1.
+    
+    for essence1 in row1.essence.split(','):
+        for essence2 in row2.essence.split(','):
+            if fuzz.token_set_ratio(essence1.lower(), essence2.lower()) > 80:
+                return 1
+        
+    if row1.tree_type.lower() == row2.tree_type.lower():
+        return 0.75 
+    
+    if row1.tree_type.lower() == 'mixed' or row2.tree_type.lower() == 'mixed':
+        return 0.5
+
+    return 0.25 
+
+from typing import Dict
+def compute_class_similarity_v2(row1 : namedtuple, row2 : namedtuple, dclass_score : Dict[str, Dict[str, Dict[str, float]]], attr_class = 'class' ) -> float:
+    """Compute the similarity between two classes
+
+    Args:
+        row1 (namedtuple): first row
+        row2 (namedtuple): second row
+        dclass_score (Dict[str, Dict[str, Dict[str, float]]]): dictionary containing the class scores
+    
+    Returns:
+        float: similarity score
+    """
+
+    # If both classes are from the same dataset and have the same class, return 1.0
+    if row1.dataset == row2.dataset and row1.cause == row2.cause:
+        return 1.0
+
+    # Get the score dictionaries for the two classes
+    scores1 = dclass_score.get(row1.dataset, {}).get(row1.cause, {})
+    scores2 = dclass_score.get(row2.dataset, {}).get(row2.cause, {})
+    
+    # Find common final classes between the two classes
+    common_final_classes = set(scores1.keys()).intersection(set(scores2.keys()))
+    
+    # Calculate the sum of the means of the scores for each common final class
+    similarity_score = sum((scores1[final_class] + scores2[final_class]) / 2 for final_class in common_final_classes)
+    
+    return similarity_score
+
+def compute_spatial_distance_v2(row1 : namedtuple, row2 : namedtuple, final_weighting_dict: Dict[str, dict]) -> float:
+    """Compute the spatial distance between two rows
+
+    Args:
+        row1 (namedtuple): first row
+        row2 (namedtuple): second row
+
+    Returns:
+        float: spatial distance
+    """
+    distance = row1.geometry.centroid.distance(row2.geometry.centroid)
+    # Convert distance to similarity
+    weight = (final_weighting_dict[row1.dataset][row1.cause]['spatial'](distance) + final_weighting_dict[row2.dataset][row2.cause]['spatial'](distance))/2
+    return weight
+
+from typing import Callable
+def build_custom_matrix_v2(df : pd.DataFrame, custom_similarity_function : Callable, kwargs: dict) -> np.ndarray:
+    """Build a similarity matrix using a custom similarity function
+
+    Args:
+        df (pd.DataFrame): DataFrame containing the data to be compared
+        custom_similarity_function (Callable): custom similarity function
+        kwargs (dict): optional arguments for the custom similarity function
+
+    Returns:
+        np.ndarray: similarity matrix
+    """
+
+    n = len(df)
+    # Initialize the similarity matrix with zeros
+    similarity_matrix = np.zeros((n, n))
+
+    # Convert DataFrame to a list of tuples for more efficient row access
+    rows = list(df.itertuples(index=False))
+    
+    # Iterate over each pair of rows
+    for i in range(n):
+        for j in range(i+1, n):  # Use range(i, n) to avoid redundant computations
+            # Compute the tree coherence for each pair of rows
+            similarity = custom_similarity_function(rows[i], rows[j], **kwargs)
+            # Fill in the matrix, it's symmetric so we can do both i,j and j,i
+            similarity_matrix[i, j] = similarity
+            similarity_matrix[j, i] = similarity
+
+    np.fill_diagonal(similarity_matrix, 1)
+
+    return similarity_matrix
+
+from typing import Dict, Tuple, Callable, List
+
+
+def get_matrices_v2(data : pd.DataFrame, dtypes_: Dict[str, str], dcustom_similarity_function : Dict[str, Tuple[Callable, dict]], final_weighting_dict : Dict[str, dict]) \
+    -> List[np.ndarray]:
+    """Compute all the different similarity matrices and combine them into a single matrix
+
+    Args:
+        data (pd.DataFrame): DataFrame containing the data to be compared
+        dtypes_ (Dict[str, str]): dictionary of dataset types
+        dcustom_similarity_function (Dict[str, Tuple[Callable, dict, float]]): Dictionary containing the custom similarity functions, the optional arguments and the weight associated with each function
+        final_weighting_dict (Dict[str, dict]): dictionary containing the final weighting functions for each dataset and class
+
+    Returns:
+        List[np.ndarray]: list of similarity matrices : temporal, spatial, custom
+    """
+
+    #spatial 
+    data = data.fillna('None')
+    matrices = {}
+
+    #temporal
+    matrices['temporal'] = np.nan_to_num(build_temporal_matrix_v2(data, final_weighting_dict=final_weighting_dict), nan=0).clip(0,1)
+
+    #CUSTOM  SIMILARITY FACTORS
+    for name, (custom_function, kwargs) in dcustom_similarity_function.items():
+        matrices[name] = np.nan_to_num(build_custom_matrix_v2(data, custom_function, kwargs), nan=0).clip(0,1)
+
+    return list(matrices.values()) 
+
+def get_matrices(data : gpd.GeoDataFrame, dtypes_: Dict[str, str], dcustom_similarity_function : Dict[str, Tuple[Callable, dict]], final_weighting_dict : Dict[str, dict]) \
+    -> List[np.ndarray]:
+    """Compute all the different similarity matrices and combine them into a single matrix
+
+    Args:
+        data (gpd.GeoDataFrame): GeoDataFrame containing the data to be compared
+        dtypes_ (Dict[str, str]): dictionary of dataset types
+        dcustom_similarity_function (Dict[str, Tuple[Callable, dict, float]]): Dictionary containing the custom similarity functions, the optional arguments and the weight associated with each function
+        final_weighting_dict (Dict[str, dict]): dictionary containing the final weighting functions for each dataset and class
+
+    Returns:
+        List[np.ndarray]: list of similarity matrices
+    """    
+    
+    data = data.fillna('None')
+    matrices = {}
+    #temporal
+    matrices['temporal'] = np.nan_to_num(build_temporal_matrix(data, final_weighting_dict=final_weighting_dict), nan=0).clip(0,1)
+
+    #spatial 
+    matrices['spatial'] = np.nan_to_num(build_spatial_matrix(data, dtypes_=dtypes_, final_weighting_dict=final_weighting_dict), nan=0).clip(0,1)
+    #CUSTOM  SIMILARITY FACTORS
+    for name, (custom_function, kwargs) in dcustom_similarity_function.items():
+        matrices[name] = np.nan_to_num(build_custom_matrix(data, custom_function, kwargs), nan=0).clip(0,1)
+
+    return list(matrices.values()) 
+
+def build_similarity_v2(matrices : List[np.ndarray], weights : List[float]) -> np.ndarray:
+    """Combine the different similarity matrices into a single matrix
+
+    Args:
+        matrices (List[np.ndarray]): list of similarity matrices
+        weights (List[float]): list of weights for each matrix
+
+    Returns:
+        np.ndarray: combined similarity matrix
+    """
+
+    return np.average(matrices, axis=0, weights=weights)
+
+from typing import Dict, Tuple
+from sklearn.cluster import SpectralClustering, DBSCAN
+import numpy as np
+import matplotlib.pyplot as plt
+
+def get_temporal_period_v2(cluster : gpd.GeoDataFrame, final_weighting_dict : Dict[str, dict]) -> (tuple, Tuple[pd.Timestamp, pd.Timestamp], float):
+
+    if len(cluster) == 1:
+        return None, (cluster['start_date'].iloc[0], cluster['end_date'].iloc[0]), 1.0
+    else :
+        upper_bound = 2 * 365 + abs(cluster['start_date'].min() - cluster['end_date'].max()).days
+        # Determine the overall time range for the cluster
+        start_date = cluster['start_date'].min() - pd.Timedelta(days=upper_bound)
+        end_date = cluster['end_date'].max() + pd.Timedelta(days=upper_bound)
+        time_range = pd.date_range(start=start_date, end=end_date, freq='2W')
+
+        # Initialize an array to hold the sum of profiles
+        sum_profiles = np.zeros(len(time_range))
+
+        for event in cluster.itertuples():
+            temporal_profile = final_weighting_dict[event.dataset][event.cause]['temporal']
+            centroid_date = calculate_temporal_centroid(event.start_date, event.end_date)
+
+            # Days difference from each point in the time range to the centroid
+            days_from_centroid = (time_range - centroid_date).days
+
+            # Evaluate the temporal profile
+            evaluated_profile = np.array([temporal_profile(abs(day)) for day in days_from_centroid])
+
+            # Accumulate the sum
+            sum_profiles += evaluated_profile
+
+        # Average the profiles
+        average_profile = sum_profiles / len(cluster)
+
+        # Plotting
+        # Assuming 'average_profile' is your array and 'time_range' is your corresponding time axis
+
+        # Find the index of the maximum value in the average profile (peak)
+        peak_index = np.argmax(average_profile)
+        confidence_threshold = np.percentile(average_profile, 90)
+        # Initialize variables to store the desired x-axis values
+        x_val_left = None
+        x_val_right = None
+
+        # Search to the left of the peak
+        for i in range(peak_index, -1, -1):  # Iterate backwards from the peak
+            if average_profile[i] <= confidence_threshold:
+                x_val_left = time_range[i]
+                break
+
+        # Search to the right of the peak
+        for i in range(peak_index, len(average_profile)):
+            if average_profile[i] <= confidence_threshold:
+                x_val_right = time_range[i]
+                break
+
+        return (time_range, average_profile), (x_val_left, x_val_right), confidence_threshold
+
+from scipy.spatial import distance   
+from shapely.geometry import Polygon, MultiPolygon
+
+def get_spatial_polygon_v2(cluster : gpd.GeoDataFrame, final_weighting_dict: Dict[str, dict]) -> Tuple[Tuple[np.ndarray, np.ndarray], MultiPolygon, float]:
+
+    if len(cluster) == 1:
+        return None, cluster.geometry.iloc[0], 1.0 
+    else : 
+        overall_centroid = cluster.geometry.centroid.unary_union.centroid
+        grid_size = 30 # Adjust as needed for resolution
+        minx, miny, maxx, maxy = cluster.geometry.total_bounds
+        width = maxx - minx
+        height = maxy - miny
+
+        # Set half_width to be half of the larger dimension of the bounding box
+        half_width = max(width, height) 
+        x = np.linspace(overall_centroid.x - half_width, overall_centroid.x + half_width, grid_size)
+        y = np.linspace(overall_centroid.y - half_width, overall_centroid.y + half_width, grid_size)
+        xx, yy = np.meshgrid(x, y)
+
+        # Initialize a 2D array to hold the sum of profiles
+        sum_profiles = np.zeros((grid_size, grid_size))
+
+        # Iterate through each event and accumulate its spatial profile
+        for event in cluster.itertuples():
+            centroid = event.geometry.centroid.coords[0]
+            #plot centroid
+            spatial_profile_func = final_weighting_dict[event.dataset][event.cause]['spatial']
+
+            # Calculate distances from the centroid to each point on the grid
+            distances = distance.cdist([(centroid[0], centroid[1])], np.vstack([xx.ravel(), yy.ravel()]).T).reshape(grid_size, grid_size)
+
+            # Evaluate the spatial profile for these distances
+            evaluated_profile = np.array([spatial_profile_func(x) for x in np.ravel(distances)]).reshape(grid_size, grid_size)
+
+            # Accumulate the sum
+            sum_profiles += evaluated_profile
+
+        # Average the profiles
+        average_profile = sum_profiles / len(cluster)
+
+        threshold = np.percentile(average_profile, 90)
+
+        plt.ioff()
+        contour = plt.contour(xx, yy, average_profile, levels=[threshold], colors='k') #, hold='on'
+        plt.close()
+        polygons = []
+        for path in contour.collections[0].get_paths():
+            vertices = path.vertices
+            polygon = Polygon(vertices)
+            polygons.append(polygon)
+
+        # Combine all polygons into a MultiPolygon
+        combined_polygon = MultiPolygon(polygons).simplify(10)
+
+        return (xx, yy, average_profile),combined_polygon, threshold
+    
+
+
+from sklearn.cluster import SpectralClustering, DBSCAN, HDBSCAN
+from typing import Dict, Tuple, Any
+
+def get_cluster_v2(data : gpd.GeoDataFrame, 
+                similarity_matrix : np.ndarray, 
+                final_weighting_dict : Dict[str, dict],
+                doa : Dict[str, float], 
+                dclass_score : Dict[str, Dict[str, Dict[str, float]]], 
+                method : str = 'SpectralClustering',
+                method_kwargs : Dict[str, Any] = {'eps': 0.23, 'min_samples': 2}
+                ) -> Tuple[gpd.GeoDataFrame, Tuple[np.ndarray, np.ndarray]]:
+    
+    """Get the cluster from a GeoDataFrame
+
+    Args:
+        data (gpd.GeoDataFrame): GeoDataFrame containing the data to be clustered
+        similarity_matrix (np.ndarray): similarity matrix
+        final_weighting_dict (Dict[str, dict]): dictionary containing the final weighting functions for each dataset and class
+        doa (Dict[str, float]): dictionary containing the degree of attribution for each dataset
+        dclass_score (Dict[str, Dict[str, Dict[str, float]]]): dictionary containing the class scores
+        method (str): clustering method
+    Returns:
+        cluster (gpd.GeoDataFrame): GeoDataFrame containing the clusters
+        similarity_matrix (np.ndarray): similarity matrix
+        labels (np.ndarray): labels of the cluster
+    """
+    
+    if method == 'DBSCAN':
+        distance_matrix = 1 - similarity_matrix
+        dbscan = DBSCAN(metric='precomputed', **method_kwargs)
+        labels = dbscan.fit_predict(distance_matrix) #distance matrix
+    elif method == 'HDBSCAN':
+        distance_matrix = 1 - similarity_matrix
+        hdbscan = HDBSCAN(metric='precomputed', **method_kwargs) #min_cluster_size=2
+        labels = hdbscan.fit_predict(distance_matrix)
+    elif method == 'SpectralClustering':
+        spectral = SpectralClustering(affinity='precomputed', assign_labels='cluster_qr', random_state=0)
+        labels = spectral.fit_predict(similarity_matrix) #similarity matrix 
+
+    # Unique cluster labels
+    data['labels'] = labels
+    cluster_labels = data['labels']
+    unique_labels = np.unique(cluster_labels)
+
+    # Dictionary to hold the sum of scores and the count for each cluster
+    cluster_sums = {label: {'sum': 0, 'count': 0, 'class': []} for label in unique_labels}
+
+    # Sum scores and counts for each cluster
+    rows = list(data.itertuples(index=False))
+    for i, (score, label) in enumerate(zip(similarity_matrix[0], cluster_labels)):
+        ws = score * doa[rows[i].dataset]
+        cluster_sums[label]['sum'] += ws 
+        cluster_sums[label]['count'] += 1
+        cluster_sums[label]['class'].extend([(c,ws,comp) for c, comp in dclass_score[rows[i].dataset][rows[i].cause].items()])
+
+    # Compute average score for each cluster
+    average_scores = {label: (cluster_sums[label]['sum'] / cluster_sums[label]['count']) for label in cluster_sums}
+
+    timeperiod_group = {}
+    indexes_group = {}
+    threshold_group = {}
+    polygons_group = {}
+    data_ = data.copy()
+    data_['start_date'] = pd.to_datetime(data_['start_date'], format='%Y-%m-%d')
+    data_['end_date'] = pd.to_datetime(data_['end_date'], format='%Y-%m-%d')
+
+    #get date of the median start and end date for each cluster
+    for group in data_['labels'].unique():
+        group_df = data_[data_['labels'] == group]
+        _, (start, end), temporal_threshold = get_temporal_period_v2(group_df, final_weighting_dict)
+        _, polygon, spatial_threshold = get_spatial_polygon_v2(group_df, final_weighting_dict)
+        threshold_group[group] = (temporal_threshold, spatial_threshold)
+        polygons_group[group] = polygon
+        timeperiod_group[group] = (start, end)
+        indexes_group[group] = group_df.index.tolist()
+
+
+
+    for label in average_scores:
+        average_scores[label] = (average_scores[label], get_predominant_class(cluster_sums[label]['class']), timeperiod_group[label], indexes_group[label], threshold_group[label], polygons_group[label])
+
+    # Convert the filtered dictionary into a DataFrame
+    df = pd.DataFrame.from_dict(average_scores, orient='index', columns=['IntraSimilarity', 'Class', 'TimePeriod', 'Indexes', 'Threshold', 'geometry'])
+
+    # Ensure the dates are in the correct format (if they are strings)
+    df['Start_Date'], df['End_Date'] = zip(*df['TimePeriod'])
+    df['Temporal_threshold'], df['Spatial_threshold'] = zip(*df['Threshold'])
+    df = df.drop(['TimePeriod', 'Threshold'], axis=1)
+
+    # Convert the string dates to datetime objects if needed
+    df['Start_Date'] = pd.to_datetime(df['Start_Date'], dayfirst=True)
+    df['End_Date'] = pd.to_datetime(df['End_Date'], dayfirst=True)
+
+    return gpd.GeoDataFrame(df.sort_values(by='IntraSimilarity', ascending=False), geometry='geometry', crs=data.crs), similarity_matrix, labels
