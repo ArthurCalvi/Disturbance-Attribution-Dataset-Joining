@@ -312,7 +312,7 @@ import networkx as nx
 import numpy as np
 from tqdm import tqdm 
 
-def build_graph(dataset_loc, dataset_glob,  sindex, spatial_threshold, temporal_threshold, attribution, G=None):
+def build_graph(dataset_loc, dataset_glob,  sindex, spatial_threshold, temporal_threshold, attribution, filter_class, G=None):
     
     if G is None:
         G = nx.Graph()
@@ -1084,7 +1084,7 @@ def compute_class_similarity_v2(row1 : namedtuple, row2 : namedtuple, dclass_sco
     return similarity_score
 
 def compute_spatial_distance_v2(row1 : namedtuple, row2 : namedtuple, final_weighting_dict: Dict[str, dict]) -> float:
-    """Compute the spatial distance between two rows
+    """Compute the spatial distance between two rows 
 
     Args:
         row1 (namedtuple): first row
@@ -1093,7 +1093,7 @@ def compute_spatial_distance_v2(row1 : namedtuple, row2 : namedtuple, final_weig
     Returns:
         float: spatial distance
     """
-    distance = row1.geometry.centroid.distance(row2.geometry.centroid)
+    distance = row1.geometry.distance(row2.geometry) #not the centroid
     # Convert distance to similarity
     weight = (final_weighting_dict[row1.dataset][row1.cause]['spatial'](distance) + final_weighting_dict[row2.dataset][row2.cause]['spatial'](distance))/2
     return weight
@@ -1221,7 +1221,7 @@ def get_temporal_period_v2(cluster : gpd.GeoDataFrame, final_weighting_dict : Di
         sum_profiles = np.zeros(len(time_range))
 
         for event in cluster.itertuples():
-            temporal_profile = final_weighting_dict[event.dataset][event.cause]['temporal']
+            temporal_profile = final_weighting_dict[event.dataset][event.cause]['temporal'] 
             centroid_date = calculate_temporal_centroid(event.start_date, event.end_date)
 
             # Days difference from each point in the time range to the centroid
