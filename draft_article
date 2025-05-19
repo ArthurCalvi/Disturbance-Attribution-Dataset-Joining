@@ -1,0 +1,517 @@
+Detection, Localization and Attribution of Forest Disturbances in France
+
+
+Abstract:
+
+Briefly summarize the background, objective, methods, main findings, and implications of the study.
+
+1. Introduction
+
+1.1. Background and Motivation:
+The decline of European forests' carbon sinks and the surge in disturbances, including emerging threats like beetle infestations and fires in temperate forests, underscore a critical issue in ecological research. The accurate detection, localization and attribution of these disturbances, are essential for both understanding these dynamics and formulating effective management strategies. 
+
+Describing disturbances in forest ecosystems is a complex task. This complexity arises due to the intricate interplay of factors driving these disturbances and the limitations in current remote sensing methodologies and ground measurement datasets. While satellite imagery allows for large scale study, it often lacks details for interpreting and attributing disturbances. On the contrary , ground measurements or observations provide detailed information on disturbances but are limited in terms of spatial and temporal coverage. 
+
+Existing research in this domain has made strides in identifying specific disturbance types like fires and storms, with recent advancements including insect disturbances by Forzieri [1]. European records, such as DFDE by Patacca et al. [2] , provide valuable insights but often lack precise geolocation details. Additionally, studies like those conducted by Senf and Seidl [3]–[5] have begun to address drought and biotic mortality, yet a dataset integrating these various disturbance types is still lacking.  This study aims to combine all of the available sources in order to provide a detailed study of disturbances in France between 2017 and 2020
+
+The choice of focusing on France for this study is strategic. France's robust National Forest Inventory, detailed biotic disturbance records from the National Forest Health department, canopy height map, and other tailored datasets provide a unique opportunity to fill the existing gaps in our understanding of forest disturbances. By leveraging these various resources, combined with graph theory, this study aims to enhance the precision of disturbance detection, localization and attribution, thereby contributing to a more nuanced understanding of the multifaceted nature of forest ecosystem dynamics.
+
+1.2. Objectives:
+The primary objective of this article is to present a novel methodology that integrates and synchronizes a diverse array of datasets to attribute forest disturbances and therefore proposes a novel dataset of various forest disturbances in France from 2017 to 2020. This approach could be employed later to tackle other time periods and countries if enough dataset are available. 
+
+We further evaluate our maps  using a rigorously validation dataset, derived from a manual examination of 500 sample disturbances. This assessment ensures the generation of a dataset that improves the attribution of forest disturbances and elevates the training capabilities of deep learning models tasked with detecting, classifying  and segmenting each type of disturbance.
+2. Data Description & Preparation 
+
+In the aim of releasing a reliable dataset for detecting forest disturbances from remote sensing techniques we decided to use 6 classes of disturbances. Those classes have been determined following discussions with experts and studies showing the detection, classification or segmentation of those disturbances. 
+Storm : This class is characterized by the impact of blowdowns of trees consecutive to severe storms. It could also encapsulate disturbances such as landslides. Storm events are rare and occur in different locations each time. They are characterized by high mortality rates and large patches being affected (ref). In France, the two severe storm events that caused a large increase of mortality, by 600% over background levels, are Lothar and Martin in 1999 with tracks going from Brittany to the East of France, and Klaus, landing in Les Landes and crossing the South West region of France. Alterations in canopy structure and texture after storms are detectable through indices like Enhanced Vegetation Index (EVI) and Normalized Difference Vegetation Index (NDVI), which are particularly responsive to such events [6], [7].
+Fire Damage: The calcination of trees due to fire is observable in specific infrared bands. Indices such as the Normalized Burn Ratio (NBR) are highly effective in identifying burnt areas. Most fires occur in the Mediterranean region with burned areas ranging from * to * ha per year, and during the recent heatwave in 2022, new forest fires occurred in Les Landes and in temperate forests in Britany, Loire and Jura
+Biotic Dieback: This category includes defoliation or discoloration of leaves resulting from insect infestations or diseases. We decided to group insect attacks and diseases together since the consequences of both agents are similar, distinguishing a particular disease or a specific insect from satellite imagery is very difficult to no say impossible. Spectral bands sensitive to moisture or chlorophyll content, such as the CRswir index, can effectively track these disturbances [8]. Notably, Bark beetle attacks, that recently appeared in the East of France, display unique spatio-temporal patterns and are typically localized within conifer tree species.Unlike many defoliators, bark beetles kill trees, although they may remain green during the attack and die in the following spring when sap flow is impaired.
+Drought-Induced Dieback: Drought conditions lead to hydraulic failure and mortality in trees, often with lagged effects, and have satellite signals  similar to biotic dieback, such as defoliation, but drought induced disturbance patterns are more widespread in their spatial and temporal extent. The  2018–2020 drought event was identified as a new benchmark having an unprecedented intensity that persisted for more than 2 years, exhibiting a mean area  coverage of 35.6% and an average duration of 12.2 months over Europe [9]. France has been severely hit by this event. 
+
+Compound event : In cases where forests undergo repeated diebacks and fail to recover, a distinct pattern of non-recovery is observable over time series data.
+Anthropogenic: This class encompasses human-induced alterations like selective logging, clear cutting, and land management practices. These disturbances often exhibit geometric patterns and are characterized by sudden changes.
+
+Each category above exhibits unique characteristics in terms of the extent of alteration, rate of change, severity of impact, and textural changes (including alterations in shape and color). Additionally, specific spectral indices have been identified as effective discriminators for these types of disturbances.
+
+This study, focusing on the period from 2017 to 2020, incorporates various datasets described in table 1 , each with its own methodologies, coverage periods, and data types. These datasets contribute to a comprehensive understanding and attribution of the six forest disturbance categories. 
+
+Dataset 
+Spatial coverage
+Temporal coverage
+Data
+Senf & Seidl [4], [5]
+Europe (30m)
+Yearly : 1986-2021
+Detected Polygons from RS
+Copernicus CDI [11]
+Europe (5km) 
+Every 10 days : 2000-2023
+Detected Polygons from RS
+FORMS [12]
+France (10m)
+Yearly : 2017-2020
+Detected Polygons from RS
+French NFI [13]
+France (600m)
+Yearly : 2004-2022
+Point - Grid Sampling 
+Health Monitoring
+France (10m) 
+Yearly : 2007-2023
+Point - Random observation 
+Fire polygons [?]
+France (10m)
+Daily 
+Detected Polygons from RS
+DFDE [2]
+Europe (municipality)
+Mostly Yearly  : 1850-2020
+Municipality polygons
+BDIFF [14]
+France (municipality)
+Daily : 1973-2023
+Municipality polygons
+
+
+Table 1 - Overview of the datasets used for this study.
+
+The subsequent sections provide brief overviews of each dataset and their integration into our attribution framework.
+
+2.1. Remote Sensing Data:
+Senf & Seidl Disturbance Maps:
+Description : The Senf & Seidl Disturbance Maps provide a comprehensive annual breakdown of forest disturbances across Europe at 30m [4], [5]. This dataset stands out for its classification of disturbances, offering insights beyond stand-replacing disturbances.
+Preprocessing : Combination of the two maps to gather information on both the year and class of disturbances for each pixel.
+Preprocessed-data : Yearly disturbed polygons attributed to Fire, Storm/Bark Beetle or others (harvest, logging, small natural disturbances) from 2014  to 2020. 
+Class mapping : The composition of the classes given in Table 2 has been estimated from the definition of the classes and the commission error rate reported in the attribution paper by Senf & Seidl [5]. 
+
+Final classes
+Storm
+Fire
+Biotic-mortality
+Biotic-dieback
+Drought-dieback
+Anthropogenic
+Storm, Biotic
+0.44
+0.02
+0.22
+0.22
+0.05
+0.05
+Fire
+0.1
+0.87
+
+
+0.01
+0.01
+0.01
+Other
+0.06
+0.03
+0.13
+0.13
+0.13
+0.52
+
+
+Table 2 - Mapping of the composition between the classes of the Senf & Seidl’ map of disturbances (rows) and the final classes (columns). 
+
+Combined Drought Indicator (CDI) by Copernicus : 
+
+Description: The Combined Drought Indicator (CDI) developed by the European Drought Observatory (EDO), is a critical tool for identifying areas affected by agricultural drought, as well as areas with potential drought impact [11]. It integrates three primary drought indicators - Standardized Precipitation Index (SPI), Soil Moisture Anomaly (SMA), and FAPAR Anomaly - to classify areas into three primary drought classes: “Watch,” “Warning,” and “Alert,” with three additional classes - “Temporary FAPAR Recovery”,  “Temporary Soil Moisture Recovery” and “Full Recovery” - indicating stages of vegetation recovery.
+Preprocessing: Only the pixels classified in the state ‘Temporary Recovery’ (FAPAR or Soil moisture) several times and suffering from drought conditions (state ‘Alert’) many times during the year before are retained. 
+Preprocessed-data : Yearly polygons of drought from 2012 to 2022. 
+Class mapping : The CDI only gathers information about drought.  
+Tree Canopy Height Estimation in France from Sentinel-2 and GEDI:
+
+Description: The Tree Canopy Height Estimation dataset, developed by M. Schwartz et al., offers a detailed mapping of forest vertical structure in France [12]. Utilizing deep learning techniques and remote sensing data, it provides a 10m resolution canopy height map (FORMS-H) for France. This high-resolution mapping is crucial for effective forest management and conservation, enabling a more accurate understanding of forest structures.
+Preprocessing : the procedure involves initially calculating the difference in height, followed by a two-stage filtering process. The first filter is applied based on a height difference threshold of 5 meters, specifically to isolate polygons indicative of clear-cutting. Subsequently, a further refinement is made based on the area of these polygons, retaining only those exceeding 0.5 hectares. Finally, an additional filter is employed to select polygons based on their geometric characteristics. 
+Preprocessed-data : Yearly clear-cut polygons at 10m from 2017 to 2020. 
+Class mapping : This dataset only gathers information about the anthropogenic class . 
+
+Fire polygons from Sentinel-2 : 
+Description : 
+Preprocessing : None. 
+Preprocessed-data : Daily burned areas at 10m from 2017 to 2020. 
+Class mapping : This dataset only gathers information about the fire class. 
+
+2.2. Ground Data:
+French National Forest Inventory (NFI): 
+Description : The French National Forest Inventory (NFI) is a crucial dataset that provides detailed and periodic information about the state of forests in France [13]. It offers insights into various aspects of the forest, including growth, composition, health, and biodiversity. The NFI undergoes periodic updates, from 2014 each plot is revisited every five years. The NFI employs a systematic sampling method, with plots distributed within a 10x10 km grid covering the entirety of France
+Preprocessing : The NFI data, containing an "Incident" field, were first filtered to identify plots with disturbances :fire, storm, landslide, mortality, others which encapsulates disturbances such as biotic dieback. Plots not flagged with an incident were further examined for signs of human activity. Those with evidence of management, such as logging or clear-cutting, were classified as 'anthropogenic'. Plots having a zero intensity of incident or all trees below 5 meters are removed from the dataset.
+Preprocessed-data : Sparsely distributed points with incident type and tree species covering a 5 years period from 2012 to 2022. 
+Class mapping : The mapping given in table 3 was estimated with respect to the definitions given by IGN [13]. 
+
+Final classes
+Storm
+Fire
+Biotic-mortality
+Biotic-dieback
+Drought-dieback
+Anthropogenic
+Storm
+1.0
+
+
+
+
+
+
+
+
+
+
+Fire
+
+
+1.0
+
+
+
+
+
+
+
+
+Mortality
+
+
+
+
+1.0
+
+
+
+
+
+
+Other
+
+
+
+
+
+
+0.33
+0.33
+0.33
+Anthropogenic
+
+
+
+
+
+
+
+
+
+
+1.0
+
+
+Table 3  - Mapping of the composition between the classes of the French NFI  dataset (rows) and the final classes (columns). 
+Forest Health Survey by the Department of Forest Health in France (HMS):
+Description : The Health Monitoring Survey is a crucial dataset that provides annual reports on forest health in France. Initiated in 2007, it focuses on identifying and documenting various health issues within French forests, aiding in the understanding and management of forest ecosystems. Observers, who are foresters, are accurately reporting health issues and their geolocation. From the beginning, the Health Monitoring Survey categorized over 40,000 reports as highly severe which corresponds to very heavy crown damage  (over 80%) or severe trunk damage (cankers, rotting, bark peeling) or advanced decay or death. 
+Preprocessing : Detailed sylvosanitary issues collected during health surveys were distilled into four principal disturbance classes: biotic-dieback, biotic-mortality, drought-dieback, fire, and other. The disambiguation between biotic-dieback and biotic-mortality is performed using the severity parameter. Also, only observations with a medium or higher severity (which correspond to visible from satellite disturbances) are kept. 
+Preprocessed-data : Yearly sparsely distributed points with disturbance and tree types from 2012 to 2022. 
+Class mapping : The mapping has been estimated from the French Forest Health Department documentation and corresponds to the identity function. The 6 classes of this dataset are identical to our 6 classes. 
+2.3. Records 
+Database of Forest Disturbance in Europe (DFDE):
+Description : The DFDE is dedicated to compiling historical data on various forest disturbances across Europe [2]. Its comprehensive scope covers a wide range of disturbance events, making it a valuable resource for understanding the dynamics of forest ecosystems in Europe.
+Preprocessing : For both BDIFF and DFDE, localizations were initially indicated only by the names of administrative regions. To spatially quantify these regions, the Google Maps API was employed to pinpoint locations.  In the case of DFDE, where field notes could offer more precise location data, an NLP model was used to parse and identify names of spatial entities across different languages. This step ensured that even finer-scale location data was captured and represented as georeferenced polygons. Subsequently, OpenStreetMap resources were utilized to extract precise polygons corresponding to the named administrative entities, enabling accurate geospatial referencing. Use of the tree species map of France to retain only areas where the tree species provided in DFDE are present. 
+Preprocessed-data : Disturbed polygons with the class, period and tree species from 2012 to 2022. 
+Class mapping : The mapping given in table 4 was conducted using the description of the disturbances. 
+
+Final classes
+Storm
+Fire
+Biotic-mortality
+Biotic-dieback
+Drought-dieback
+Anthropogenic
+Storm
+1.0
+
+
+
+
+
+
+
+
+
+
+Fire
+
+
+1.0
+
+
+
+
+
+
+
+
+Biotic
+
+
+
+
+0.25
+0.75
+
+
+
+
+Drought
+
+
+
+
+
+
+
+
+1.0
+
+
+Other
+
+
+
+
+
+
+
+
+
+
+1.0
+
+
+Table 4  - Correspondence table between the classes of DFDE disturbed areas  (rows) and our 6 classes of disturbances  (columns). 
+
+Forest Fire Database in France (BDIFF):
+Description : The BDIFF is a repository centralizing data on forest fires in France since 1992 [14]. It serves a dual purpose: providing essential data for professionals and authorities in forestry management and acting as an educational resource for the public on forest fire incidents in France. Fire alerts are reported with the exact date. 
+Preprocessing : Same as DFDE. In addition, only fires having a footprint superior to 0.5 ha are retained.
+Preprocessed-data : Administrative Spatial entities (polygons) suffering from fires with the forest area burnt and the alert date from 2012 to 2020. 
+Class mapping : The mapping is straightforward, only fires are contained in this database. 
+
+2.4. Ancillary Data:
+Forest tree species map of France:
+Description : BD Forêt® Version 2.0 is an expansive database that maps forested and semi-natural areas in France, offering crucial geographic references for various forest species [15]. It plays a vital role in understanding the distribution and composition of French forests.The spatial resolution of the data is detailed enough to accurately map areas larger than 0.5 hectares. 
+Preprocessing :  The spatial resolution of the BD Forêt® dataset polygons was standardized to 30 meters to match the granularity of other datasets. Tree species nomenclature within BD Forêt® was translated into English common names, ensuring consistency and comprehensibility across the datasets.
+Preprocessed-data : Tree-specie polygons at 30m. 
+BD Forêt® version 2.0 adds valuable information on the specifics of forest composition and species affected by these disturbances. 
+3. Methodology
+3.1. Dataset Integration:
+ 
+Integrating heterogeneous datasets in ecological research presents a unique set of challenges. Our methodology addresses these challenges by accounting for the temporal and spatial uncertainties inherent in the datasets as well as considering the distinct temporal and spatial dynamics of forest disturbances. 
+
+We have developed a framework that defines 'reliability profiles' for each driver. These profiles represent the effective range, both temporally and spatially, over which the dataset provides reliable information. To model these profiles, we took into account two variables : 
+
+The uncertainties linked to the dataset and/or the algorithm. For instance, for datasets using Landsat imagery and pixel-wise algorithm, we set the spatial uncertainty as a plateau at 1.0 reliability from x=0 to x=30m (1 pixel) and then a Gaussian centered at 0 decreasing by two standard deviation on 150m  (5 pixels) to take into account possible fuzzy borders due to the per pixel approach. The 5 pixels measure is arbitrary but seems a reasonable buffer to avoid error due to inaccurate polygon’s borders. In addition, for ground measurement, we take into account the error and uncertainty of the measure as well as the size of the measured plot. In the case of the French NFI, coordinates are blurred at 600m and plots are 25m wide. Thus we employed a plateau at 1.0 reliability from x=0 to x=600m and then a gaussian that decreases by two standard deviations in 25m. Generally, we tried to take into account all dataset specificities : spatial and temporal resolution, uncertainties linked to the sensors and algorithm uncertainties to set temporal and spatial uncertainties profile. Figure 2 illustrates the spatial uncertainties linked to the French NFI and Senf & Seidl datasets. 
+
+[figure avec les profiles temporelles et spatiales des bases de données ]
+Figure 1 - Spatial and temporal influence weighting profiles for each dataset. 
+
+The temporal and spatial extent of the disturbance visibility for each dataset class. These profiles take into account the duration from which the disturbance can be spotted and the spatial extent that are typically affected. Profiles are simulated using a gaussian centered in zero since we are dealing with spatial and temporal visibility from the event. First, spatial and temporal profiles were determined for each of the 6 disturbance classes. Then, profiles for each dataset class were computed by using a weighted average of the 6 disturbances classes present in the dataset class composition. For instance, the ‘Biotic’ class of DFDE is estimated to contain 75% of ‘Biotic-dieback’ and 25% of ‘Compound events’, the temporal and spatial profiles of this ‘Biotic’ class are then obtained using a weighted average of the ‘Biotic-dieback’ and ‘Compound-mortality’ as shown by figure 3. 
+
+[figure avec les profiles temporelles et spatiales des classes de perturbations]
+Figure 2 - Spatial and temporal visual extent of the ‘Biotic’ class in DFDE. 
+
+We then take the mean between the dataset’s and class’ profile to obtain both temporal and spatial profiles per dataset’s class.  
+
+
+Figure 3 - Profile per dataset’s class. 
+
+These tailored profiles enable us to enhance the integration of all sources of data by incorporating the specific characteristics of both the datasets and the disturbances themselves. 
+
+[représentation spatial des points avec les zones de fiabilité spatiales + couleur par dataset] 
+Figure - Spatial reliability profiles 
+3.2. Communities of disturbances
+The first step towards using various datasets to localize and attribute disturbances is to gather events recorded by various datasets together if they are temporarily and spatially close enough. One practical strategy to achieve it is to use graph theory and the Louvain communities. In fact, our framework is very suited for building a graph. Each node represents one event or line from one of the various datasets used. Nodes are connected depending on both a spatial and a temporal threshold. Edges are weighted using the temporal and spatial profiles explained above, thus taking into account dataset’s and class’ specificities into the graph. In practice, the connection matrix was obtained iteratively by doubling the temporal and spatial threshold until the graph was connected. This iterative process was used in order to limit the number of connections in dense areas. 
+
+[représentation spatial des points avec les communautés + zoom sur  communauté a ] 
+Figure 4 - Example of Louvain communities. 
+
+
+Then, the Louvain method is used to gather disturbances events together. This algorithm operates by iteratively grouping nodes into communities, aiming to maximize modularity. Modularity is a scale value between −0.5 (non-modular clustering) and 1 (fully modular clustering) that measures the relative density of edges inside communities with respect to edges outside communities. Optimizing this value theoretically results in the best possible grouping of the nodes of a given network. But because going through all possible iterations of the nodes into groups is impractical, heuristic algorithms are used. In each iteration, the algorithm evaluates the gain in modularity that would result from moving a node to a neighboring community, considering both the spatial proximity and the temporal closeness of the nodes, thus effectively clustering nodes that are similar both in location and in time. Figure 4 shows an example of two communities defined on a small sub-graph. The resolution of the Louvain method is set to 100 and communities created contain from 2 to 100 nodes, typically representing forest areas suffering from multiple disturbances. The next step is to identify and localize the disturbances cluster occurring in those communities. 
+
+3.3. Clustering inside communities:
+
+Our objective is to integrate the disturbances into discrete clusters that correspond to individual disturbance events. To amalgamate disturbances that may indicate a single event, we compute similarity matrices across several dimensions, as outlined below:
+
+Spatial Distance: This is computed as the distance between the two polygon’s centroids. It is then normalized to a scale of 0 to 1 by taking the average of the respective weighting profiles of each of the two nodes. 
+
+Temporal Distance: This is computed as the distance between the two temporal centroids. As for the spatial distance, the weighting profiles of the nodes are used to normalize this measure between 0 and 1. 
+
+Tree Species Distance: A similarity matrix reflects the matching of tree species, with a value of 1 indicating an exact match, 0.75 for type level matches (e.g., deciduous vs. conifer), 0.5 for a species mix, and 0.25 otherwise.
+
+Disturbance Class Distance: A similarity scoring system compares event classifications across datasets by aligning them to a set of uniform 'final' classes. The similarity score averages the estimated proportions of each common 'final' class between events, yielding a value between 0 and 1 that signifies the likelihood of the two classes representing the same disturbance type.
+
+[figure - matrices de similarité de la communauté A + visualisation spatial de la communauté A] 
+
+The next step is to leverage those matrices in order to regroup nodes into clusters representing single disturbance events. One interesting approach is to use the HDBSCAN clustering algorithm. HDBSCAN is able to obtain all possible partitions achievable by DBSCAN for a fixed choice of `min_samples` in a hierarchical fashion. Indeed, this allows HDBSCAN to perform clustering across multiple densities and as such it no longer needs ε to be given as a hyperparameter. Instead it relies solely on the choice of `min_samples`, which tends to be a more robust hyperparameter. 
+HDBSCAN is preferred in our case as the density of observations of disturbances events can greatly vary depending on the disturbance class. 
+
+[figure - résultats de HDBSCAN sur communauté A] 
+3.4. Determining temporal and spatial confidence zone of disturbance clusters 
+
+
+3.5. Creating the Validation Dataset:
+ Describe how the combined and attributed dataset will be structured and annotated for machine learning purposes.
+
+The compilation and enhancement of a training dataset tailored for deep learning constitutes a pivotal phase. This dataset will serve as the foundation for an automated system that discerns and characterizes disturbance events within forested landscapes. It is meticulously curated to include 500 samples, each representing a 10 x 10 km area captured via Sentinel-2 satellite imagery. This imagery spans five critical years, from 2015 to 2020, a period replete with valuable data points for our analysis.
+
+Each sample within the dataset is a temporal sequence of annotated images, varying in length, and capable of depicting one or multiple disturbance events as they unfold over time. Annotations are time series of bounding boxes encapsulating the forest disturbances and describing the class. 
+
+[PLACEHOLDER IMAGE WITH DISTURBANCE AND BOUNDING BOX] 
+
+In the critical step of sample selection, we employed a stratified random sampling technique to ensure a comprehensive and balanced representation of the various disturbance types and forest conditions. Our sampling frame was stratified based on key parameters: forest habitats (11 distinct types across France according to the GRECO [16]), polygon sizes, and the six classes of forest disturbances (Fire, Storm, Drought dieback, Biotic-dieback, Biotic-mortality, and Anthropogenic). Within each stratum, 3 disturbance samples were randomly selected, guaranteeing an equitable distribution across different habitats, time frames, and disturbance categories. This approach was designed to minimize sampling bias, thereby enhancing the accuracy and generalizability of our attribution analysis, and providing a robust dataset for subsequent deep learning model training.
+
+
+
+4. Validation
+
+In this study, accurately estimating the attribution error is key to validating the reliability and precision of our forest disturbance attribution methodology. This error estimation involves an in-depth comparison between the disturbance classes and periods attributed through our spectral clustering method and those verified manually via satellite imagery analysis. This comparative process is applied to a strategically balanced sample of 500 polygons, as delineated in section 4.1.
+
+Methodology:
+Primary Comparison: The primary step involves comparing the main disturbance group identified by our model for each polygon against the manually verified disturbance from satellite imagery. This comparison crucially focuses on two attributes: the class of disturbance and its period.
+Secondary Comparison: We also assess the agreement for secondary groups identified by the model (those with lower similarity scores but still significant). This evaluation aids in understanding the model's proficiency in recognizing multiple disturbances affecting the same polygon.
+Error Metrics: For a detailed analysis, we employ quantitative metrics such as precision, recall, and F1 score for each disturbance class to measure the congruence between the model predictions and manual checks. These metrics offer a nuanced perspective of the model's performance across various disturbance types.
+Spatial and Temporal Consistency:
+Temporal Alignment: The Temporal Overlap Index (TOI) is utilized to quantify the temporal alignment between the model's predictions and the observed disturbances in satellite imagery. TOI evaluates the overlap in the timing of disturbances, ensuring chronological accuracy.
+Spatial Overlap and Distance: This metric measures the maximum distance from a point in one polygon to the nearest point in the other polygon, providing a comprehensive evaluation of the model's spatial accuracy, both in terms of how closely it can replicate observed disturbance boundaries and in capturing the spatial extent of disturbances.
+
+Two sensitivity analyses are also conducted. The first analysis aims to understand the impact on the error of the granularity parameter. A second analysis of how sensitive the model's predictions are to varying thresholds for selecting the main disturbance group is also conducted. These assessments available in appendices are critical for understanding the model's robustness under different parameter settings. 
+
+
+
+
+Disturbance Type
+Precision
+Recall
+F1 score
+Hausdorff Distance
+Temporal Overlap Index (TOI)
+Fire
+
+
+
+
+
+
+
+
+
+
+Storm
+
+
+
+
+
+
+
+
+
+
+Drought Dieback
+
+
+
+
+
+
+
+
+
+
+Biotic Dieback
+
+
+
+
+
+
+
+
+
+
+Biotic Mortality
+
+
+
+
+
+
+
+
+
+
+Anthropogenic 
+
+
+
+
+
+
+
+
+
+
+
+
+Table - Error of the attribution framework. 
+
+This table is crafted to offer a clear and concise overview of our model's accuracy and reliability in attributing forest disturbances, reflecting not only the model's ability to correctly identify the type of disturbance but also its precision in defining the exact spatial and temporal characteristics of each disturbance.
+5. Results
+5.1. Attribution Results:
+ Present the findings from the spectral clustering analysis.
+
+[PREVIEW WITH ONLY THE RESULTS OF 2019] 
+
+
+
+Figure - Visualization of cluster’s centroids 
+5.2. Error Analysis:
+Summarize the estimated errors in the attribution process.
+5.3. Dataset Characteristics
+ Describe the curated dataset and its features.
+
+6. Discussion
+6.1. Implications of Findings:
+ Reflect on the significance of the results for forest disturbance research and deep learning applications.
+6.2. Limitations and Challenges:
+ Acknowledge any limitations of the study and potential challenges in the methodology.
+6.3. Future Work:
+ Suggest directions for future research based on the findings.
+
+7. Conclusion
+- Recapitulate the main points, reaffirm the value of the research, and reiterate the potential impact on remote sensing and ecological studies.
+
+References
+[1]	G. Forzieri et al., ‘The Database of European Forest Insect and Disease Disturbances: DEFID2’, Glob. Change Biol., vol. n/a, no. n/a, doi: 10.1111/gcb.16912.
+[2]	M. Patacca, M.-J. Schelhaas, S. Zudin, and M. Lindner, ‘Database on Forest Disturbances in Europe (DFDE)- Technical report’.
+[3]	 cornelius senf, A. Buras, C. Zang, A. Rammig, and R. Seidl, ‘Excess forest mortality is consistently linked to drought across Europe’, Nat. Commun., vol. 11, Dec. 2020, doi: 10.1038/s41467-020-19924-1.
+[4]	C. Senf and R. Seidl, ‘Mapping the forest disturbance regimes of Europe’, Nat. Sustain., vol. 4, no. 1, pp. 63–70, Sep. 2020, doi: 10.1038/s41893-020-00609-y.
+[5]	C. Senf and R. Seidl, ‘Storm and fire disturbances in Europe: Distribution and trends’, Glob. Change Biol., vol. 27, no. 15, pp. 3605–3619, Aug. 2021, doi: 10.1111/gcb.15679.
+[6]	F. Furukawa, J. Morimoto, N. Yoshimura, and M. Kaneko, ‘Comparison of Conventional Change Detection Methodologies Using High-Resolution Imagery to Find Forest Damage Caused by Typhoons’, Remote Sens., vol. 12, no. 19, Art. no. 19, Jan. 2020, doi: 10.3390/rs12193242.
+[7]	J. Rogan, L. Schneider, Z. Christman, M. Millones, D. Lawrence, and B. Schmook, ‘Hurricane disturbance mapping using MODIS EVI data in the southeastern Yucatán, Mexico’, Remote Sens. Lett., vol. 2, no. 3, pp. 259–267, Sep. 2011, doi: 10.1080/01431161.2010.520344.
+[8]	F. Mouret, D. Morin, H. Martin, M. Planells, and C. Vincent-Barbaroux, ‘Toward an operational monitoring of oak dieback with multispectral satellite time series: a case study in Centre-Val de Loire region of France’, Apr. 2023. Accessed: Jan. 02, 2024. [Online]. Available: https://hal.science/hal-04073294
+[9]	O. Rakovec et al., ‘The 2018–2020 Multi-Year Drought Sets a New Benchmark in Europe’, Earths Future, vol. 10, no. 3, p. e2021EF002394, 2022, doi: 10.1029/2021EF002394.
+[10]	M. C. Hansen et al., ‘High-Resolution Global Maps of 21st-Century Forest Cover Change’, Science, vol. 342, no. 6160, pp. 850–853, Nov. 2013, doi: 10.1126/science.1244693.
+[11]	C. Cammalleri et al., ‘A revision of the Combined Drought Indicator (CDI) used in the European Drought Observatory (EDO)’, Nat. Hazards Earth Syst. Sci., vol. 21, no. 2, pp. 481–495, Feb. 2021, doi: 10.5194/nhess-21-481-2021.
+[12]	M. Schwartz et al., ‘FORMS: Forest Multiple Source height, wood volume, and biomass maps in France at 10 to 30 m resolution based on Sentinel-1, Sentinel-2, and Global Ecosystem Dynamics Investigation (GEDI) data with a deep learning approach’, Earth Syst. Sci. Data, vol. 15, no. 11, pp. 4927–4945, Nov. 2023, doi: 10.5194/essd-15-4927-2023.
+[13]	IGN, ‘Inventaire forestier national français, Données brutes, Campagnes annuelles 2005 et suivantes’. Accessed: Nov. 30, 2023. [Online]. Available: https://inventaire-forestier.ign.fr/dataIFN/
+[14]	I. Ministère de l’Agriculture et de la Souveraineté Alimentaire, ‘Base de Données sur les Incendies de Forêts en France’. Accessed: Dec. 01, 2023. [Online]. Available: https://bdiff.agriculture.gouv.fr/
+[15]	IGN, ‘BD Forêt®’. Accessed: Dec. 01, 2023. [Online]. Available: https://geoservices.ign.fr/bdforet
+[16]	IGN, ‘Grandes régions écologiques (GRECO)’. Accessed: Dec. 04, 2023. [Online]. Available: https://geo.data.gouv.fr/fr/datasets/6c8a6dc109c93f05365752e494ba4643dce882fa
+
+
+Appendices
+- Include additional data or supplementary methods that support the article's content.
+
