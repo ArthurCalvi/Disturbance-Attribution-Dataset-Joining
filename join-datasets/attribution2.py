@@ -391,9 +391,12 @@ class Attribution:
         dataset['centroid_date'] = dataset.apply(lambda x: calculate_temporal_centroid(x.start_date, x.end_date), axis=1)
         n = dataset.index.max()
 
-        spatial_entity_dataset = gpd.GeoDataFrame(pd.concat(list_spatial_entity_dataset), geometry='geometry', crs=list_spatial_entity_dataset[0].crs)[self.mandatory_columns + ['geometry']].reset_index().rename(columns={'index': 'id'})
-        spatial_entity_dataset.index = spatial_entity_dataset.index + n + 1
-        spatial_entity_dataset['centroid_date'] = spatial_entity_dataset.apply(lambda x: calculate_temporal_centroid(x.start_date, x.end_date), axis=1)
+        if len(list_spatial_entity_dataset) > 0:
+            spatial_entity_dataset = gpd.GeoDataFrame(pd.concat(list_spatial_entity_dataset), geometry='geometry', crs=list_spatial_entity_dataset[0].crs)[self.mandatory_columns + ['geometry']].reset_index().rename(columns={'index': 'id'})
+            spatial_entity_dataset.index = spatial_entity_dataset.index + n + 1
+            spatial_entity_dataset['centroid_date'] = spatial_entity_dataset.apply(lambda x: calculate_temporal_centroid(x.start_date, x.end_date), axis=1)
+        else :
+            spatial_entity_dataset = None 
         return dataset, spatial_entity_dataset
 
     #write a method that returns the temporal and spatial join

@@ -52,7 +52,7 @@ custom_color_mapping = {
 }
 
 loading_dict = {
-    "dfde" : '../data/processed_datasets/simplified_refined_DFDE_1984_2021_EPSG2154_FR.parquet',
+    # "dfde" : '../data/processed_datasets/simplified_refined_DFDE_1984_2021_EPSG2154_FR.parquet',
     "hm" : '../data/processed_datasets/simplified_health-monitoring_2007-2023_EPSG2154_FR.parquet',
     "nfi" : '../data/processed_datasets/simplified_PascalSchneider_NFI_2003-2021_EPSG2154_FR.parquet',
     "senfseidl" : "../data/processed_datasets/simplified_SenfSeidl_joined_EPSG2154_FR.parquet", 
@@ -63,7 +63,7 @@ loading_dict = {
 }
 
 temporal_buffer = 2 
-dtypes = {'dfde': 'polygon', 'hm': 'point', 'nfi': 'point', 'senfseidl': 'point', 'bdiff': 'polygon', 'firepolygons': 'polygon', 'cdi':'polygon', 'forms':'point'}
+dtypes = {'hm': 'point', 'nfi': 'point', 'senfseidl': 'point', 'bdiff': 'polygon', 'firepolygons': 'polygon', 'cdi':'polygon', 'forms':'point'}
 
 ddataset_profile = {
     'dfde': {
@@ -132,5 +132,5 @@ ddisturbance_profile = {
     }
 }
 
-doa = {'dfde': 1.0, 'hm': 1.0, 'nfi': 1.0, 'senfseidl': .75, 'bdiff': 1.0, 'cdi':.75, 'forms':0.75, 'firepolygons':1.0}
-dsbuffer = {'dfde': None, 'hm': 5000, 'nfi': 7000, 'senfseidl': 100, 'bdiff': None, 'cdi':100, 'forms':100, 'firepolygons':100}
+doa =  {'hm': 1.0, 'nfi': 1.0, 'senfseidl': .75, 'bdiff': 0.25, 'cdi':0.5, 'forms':0.75, 'firepolygons':1.0} #DFDE
+dsbuffer = {'hm': 5000, 'nfi': 7000, 'senfseidl': 100, 'bdiff': None, 'cdi':100, 'forms':100, 'firepolygons':100}

@@ -1207,9 +1207,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def get_temporal_period_v2(cluster : gpd.GeoDataFrame, final_weighting_dict : Dict[str, dict]) -> (tuple, Tuple[pd.Timestamp, pd.Timestamp], float):
-
-    if len(cluster) == 1:
-        return None, (cluster['start_date'].iloc[0], cluster['end_date'].iloc[0]), 1.0
+    proba = cluster['probabilities'].sum()
+    if proba == 0:
+        return None, (cluster['start_date'].min(), cluster['end_date'].max()), 0.
+    # elif len(cluster) == 1:
+    #     return None, (cluster['start_date'].iloc[0], cluster['end_date'].iloc[0]), 1.0
     else :
         upper_bound = 2 * 365 + abs(cluster['start_date'].min() - cluster['end_date'].max()).days
         # Determine the overall time range for the cluster
@@ -1219,6 +1221,10 @@ def get_temporal_period_v2(cluster : gpd.GeoDataFrame, final_weighting_dict : Di
 
         # Initialize an array to hold the sum of profiles
         sum_profiles = np.zeros(len(time_range))
+        total_probability = cluster['probabilities'].sum()  # Total probability for normalization
+        #total probability set to 1 if it is 0
+        if total_probability == 0:
+            total_probability = 1
 
         for event in cluster.itertuples():
             temporal_profile = final_weighting_dict[event.dataset][event.cause]['temporal'] 
@@ -1231,10 +1237,10 @@ def get_temporal_period_v2(cluster : gpd.GeoDataFrame, final_weighting_dict : Di
             evaluated_profile = np.array([temporal_profile(abs(day)) for day in days_from_centroid])
 
             # Accumulate the sum
-            sum_profiles += evaluated_profile
+            sum_profiles += evaluated_profile * event.probabilities
 
         # Average the profiles
-        average_profile = sum_profiles / len(cluster)
+        average_profile = sum_profiles / total_probability
 
         # Plotting
         # Assuming 'average_profile' is your array and 'time_range' is your corresponding time axis
@@ -1265,9 +1271,10 @@ from shapely.geometry import Polygon, MultiPolygon
 
 def get_spatial_polygon_v2(cluster : gpd.GeoDataFrame, final_weighting_dict: Dict[str, dict]) -> Tuple[Tuple[np.ndarray, np.ndarray], MultiPolygon, float]:
 
-    if len(cluster) == 1:
-        return None, cluster.geometry.iloc[0], 1.0 
-    else : 
+    proba = cluster['probabilities'].sum()
+    if proba == 0:
+        return None, cluster.geometry.unary_union, 0. 
+    else :  #i am removing this part for uniformity of the map 
         overall_centroid = cluster.geometry.centroid.unary_union.centroid
         grid_size = 30 # Adjust as needed for resolution
         minx, miny, maxx, maxy = cluster.geometry.total_bounds
@@ -1282,6 +1289,9 @@ def get_spatial_polygon_v2(cluster : gpd.GeoDataFrame, final_weighting_dict: Dic
 
         # Initialize a 2D array to hold the sum of profiles
         sum_profiles = np.zeros((grid_size, grid_size))
+        total_probability = cluster['probabilities'].sum()  # Sum of all probabilities for normalization
+        if total_probability == 0:
+            total_probability = 1
 
         # Iterate through each event and accumulate its spatial profile
         for event in cluster.itertuples():
@@ -1296,10 +1306,10 @@ def get_spatial_polygon_v2(cluster : gpd.GeoDataFrame, final_weighting_dict: Dic
             evaluated_profile = np.array([spatial_profile_func(x) for x in np.ravel(distances)]).reshape(grid_size, grid_size)
 
             # Accumulate the sum
-            sum_profiles += evaluated_profile
+            sum_profiles += evaluated_profile * event.probabilities 
 
         # Average the profiles
-        average_profile = sum_profiles / len(cluster)
+        average_profile = sum_profiles / total_probability
 
         threshold = np.percentile(average_profile, 90)
 
@@ -1315,8 +1325,7 @@ def get_spatial_polygon_v2(cluster : gpd.GeoDataFrame, final_weighting_dict: Dic
         # Combine all polygons into a MultiPolygon
         combined_polygon = MultiPolygon(polygons).simplify(10)
 
-        return (xx, yy, average_profile),combined_polygon, threshold
-    
+        return (xx, yy, average_profile),combined_polygon, threshold   
 
 
 from sklearn.cluster import SpectralClustering, DBSCAN, HDBSCAN
@@ -1350,16 +1359,21 @@ def get_cluster_v2(data : gpd.GeoDataFrame,
         distance_matrix = 1 - similarity_matrix
         dbscan = DBSCAN(metric='precomputed', **method_kwargs)
         labels = dbscan.fit_predict(distance_matrix) #distance matrix
+        probabilities = 1
     elif method == 'HDBSCAN':
         distance_matrix = 1 - similarity_matrix
         hdbscan = HDBSCAN(metric='precomputed', **method_kwargs) #min_cluster_size=2
         labels = hdbscan.fit_predict(distance_matrix)
+        probabilities = hdbscan.probabilities_
+        probabilities = np.where(probabilities == np.inf, 0, probabilities)
     elif method == 'SpectralClustering':
         spectral = SpectralClustering(affinity='precomputed', assign_labels='cluster_qr', random_state=0)
         labels = spectral.fit_predict(similarity_matrix) #similarity matrix 
+        probabilities = 1
 
     # Unique cluster labels
     data['labels'] = labels
+    data['probabilities'] = probabilities
     cluster_labels = data['labels']
     unique_labels = np.unique(cluster_labels)
 
@@ -1368,8 +1382,8 @@ def get_cluster_v2(data : gpd.GeoDataFrame,
 
     # Sum scores and counts for each cluster
     rows = list(data.itertuples(index=False))
-    for i, (score, label) in enumerate(zip(similarity_matrix[0], cluster_labels)):
-        ws = score * doa[rows[i].dataset]
+    for i, (score, label, probability) in enumerate(zip(similarity_matrix[0], cluster_labels, data['probabilities'])):
+        ws = score * doa[rows[i].dataset] * probability
         cluster_sums[label]['sum'] += ws 
         cluster_sums[label]['count'] += 1
         cluster_sums[label]['class'].extend([(c,ws,comp) for c, comp in dclass_score[rows[i].dataset][rows[i].cause].items()])
@@ -1381,6 +1395,7 @@ def get_cluster_v2(data : gpd.GeoDataFrame,
     indexes_group = {}
     threshold_group = {}
     polygons_group = {}
+    probabilities_group = {}
     data_ = data.copy()
     data_['start_date'] = pd.to_datetime(data_['start_date'], format='%Y-%m-%d')
     data_['end_date'] = pd.to_datetime(data_['end_date'], format='%Y-%m-%d')
@@ -1388,6 +1403,8 @@ def get_cluster_v2(data : gpd.GeoDataFrame,
     #get date of the median start and end date for each cluster
     for group in data_['labels'].unique():
         group_df = data_[data_['labels'] == group]
+        #identify probabilities for each label
+        probabilities_group[group] = group_df['probabilities'].values
         _, (start, end), temporal_threshold = get_temporal_period_v2(group_df, final_weighting_dict)
         _, polygon, spatial_threshold = get_spatial_polygon_v2(group_df, final_weighting_dict)
         threshold_group[group] = (temporal_threshold, spatial_threshold)
@@ -1395,13 +1412,12 @@ def get_cluster_v2(data : gpd.GeoDataFrame,
         timeperiod_group[group] = (start, end)
         indexes_group[group] = group_df.index.tolist()
 
-
-
     for label in average_scores:
         average_scores[label] = (average_scores[label], get_predominant_class(cluster_sums[label]['class']), timeperiod_group[label], indexes_group[label], threshold_group[label], polygons_group[label])
 
     # Convert the filtered dictionary into a DataFrame
     df = pd.DataFrame.from_dict(average_scores, orient='index', columns=['IntraSimilarity', 'Class', 'TimePeriod', 'Indexes', 'Threshold', 'geometry'])
+    df['probabilities'] = probabilities_group
 
     # Ensure the dates are in the correct format (if they are strings)
     df['Start_Date'], df['End_Date'] = zip(*df['TimePeriod'])
