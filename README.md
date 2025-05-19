@@ -67,5 +67,4 @@ The preprocessing notebooks are described in [docs/preprocessing.md](docs/prepro
 The attribution workflow is explained in [docs/attribution.md](docs/attribution.md).
 For further methodological context see `draft_article`.
 
-Detailed preprocessing steps and an overview of the attribution pipeline are available in [docs/preprocessing_and_attribution.md](docs/preprocessing_and_attribution.md). For further background information see `draft_article`.
 
