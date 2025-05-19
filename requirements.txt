@@ -1,0 +1,16 @@
+pandas
+geopandas
+dask[dataframe]
+dask-geopandas
+networkx
+scikit-learn
+scipy
+numpy
+tqdm
+matplotlib
+matplotlib-scalebar
+contextily
+shapely
+rasterio
+thefuzz
+joblib
