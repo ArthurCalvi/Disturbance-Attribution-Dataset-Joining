@@ -9,4 +9,11 @@ Senf & Seidl maps :
 - Detection : https://zenodo.org/record/7080016#.Y7QtTS8w30o 
 
 Patacca et al. record : 
-- 
+## Installation
+
+Install the required Python packages using:
+
+```bash
+pip install -r requirements.txt
+```
+
