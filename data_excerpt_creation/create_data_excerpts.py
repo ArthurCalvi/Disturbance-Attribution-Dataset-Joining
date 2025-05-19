@@ -16,7 +16,7 @@ TARGET_CRS = "EPSG:2154"
 # Assuming this script is in data_excerpt_creation and constants.py is in join-datasets
 # Adjust the path if your directory structure is different
 CONSTANTS_FILE_PATH = "../join-datasets/constants.py" 
-OUTPUT_DIR_RELATIVE_TO_CONSTANTS = "../data/excerpts/" # Relative to the constants.py file's directory
+OUTPUT_DIR_RELATIVE_TO_CONSTANTS = "../excerpts/" # Relative to the constants.py file's directory
 
 # --- Helper Functions ---
 def load_loading_dict_from_file(file_path):
@@ -111,11 +111,69 @@ def create_excerpt(gdf, bbox_geom, output_path):
         clipped_gdf.to_parquet(output_path)
         logging.info(f"Successfully created excerpt: {output_path}")
 
-        # Check file size
+        # Check file size and resample if necessary
         file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-        logging.info(f"Excerpt size for {output_path.split('/')[-1]}: {file_size_mb:.2f} MB")
+        logging.info(f"Initial excerpt size for {output_path.split('/')[-1]}: {file_size_mb:.2f} MB")
+
         if file_size_mb > 5:
-            logging.warning(f"Excerpt {output_path} is larger than 5MB ({file_size_mb:.2f} MB).")
+            logging.warning(
+                f"Excerpt {output_path} is {file_size_mb:.2f} MB (larger than 5MB). "
+                f"Attempting to resample to be < 10MB."
+            )
+            
+            TARGET_MAX_SAMPLING_MB = 9.5  # Target size in MB for resampling
+
+            # Only attempt to sample if the GeoDataFrame is not empty and sampling makes sense
+            if not clipped_gdf.empty:
+                # Calculate sampling fraction to target TARGET_MAX_SAMPLING_MB
+                # This fraction applies to the number of rows, assuming size is proportional to rows.
+                if file_size_mb > 0: # Avoid division by zero
+                    sampling_fraction_for_size = TARGET_MAX_SAMPLING_MB / file_size_mb
+                    
+                    if sampling_fraction_for_size < 1.0:
+                        # Apply this fraction to the number of rows
+                        n_target_rows = max(1, int(len(clipped_gdf) * sampling_fraction_for_size))
+                        
+                        if n_target_rows < len(clipped_gdf):
+                            logging.info(
+                                f"Resampling {output_path.split('/')[-1]} from {len(clipped_gdf)} rows to {n_target_rows} rows "
+                                f"(sampling fraction for size: {sampling_fraction_for_size:.4f})."
+                            )
+                            sampled_gdf = clipped_gdf.sample(n=n_target_rows, random_state=1) # random_state for reproducibility
+                            sampled_gdf.to_parquet(output_path)  # Overwrite the file
+                            file_size_mb = os.path.getsize(output_path) / (1024 * 1024)  # Update file_size_mb
+                            logging.info(
+                                f"New excerpt size for {output_path.split('/')[-1]} after sampling: {file_size_mb:.2f} MB"
+                            )
+                        else:
+                            logging.info(
+                                f"Calculated target rows ({n_target_rows}) is not less than current rows ({len(clipped_gdf)}). "
+                                f"Skipping resampling for {output_path.split('/')[-1]}. Current size: {file_size_mb:.2f} MB."
+                            )
+                    else:
+                        logging.info(
+                            f"Calculated sampling fraction for size ({sampling_fraction_for_size:.4f}) is >= 1.0. "
+                            f"File is likely already < {TARGET_MAX_SAMPLING_MB}MB or sampling won't reduce size significantly. "
+                            f"Skipping resampling for {output_path.split('/')[-1]}. Current size: {file_size_mb:.2f} MB."
+                        )
+                else:
+                    logging.warning(f"File size of {output_path.split('/')[-1]} is 0MB. Cannot calculate sampling fraction.")
+            else:
+                # This case should ideally not be reached if the function returned False earlier for empty clipped_gdf
+                logging.warning(f"Clipped GeoDataFrame for {output_path.split('/')[-1]} is empty. Cannot sample.")
+
+        # Final size check and warning
+        if file_size_mb > 10:
+            logging.warning(
+                f"FINAL Excerpt {output_path} is {file_size_mb:.2f} MB, which is STILL LARGER than 10MB "
+                "despite any sampling attempt."
+            )
+        elif file_size_mb > 5: # If it's between 5 and 10 MB (inclusive of 5, exclusive of 10 from above)
+             logging.warning(
+                f"FINAL Excerpt {output_path} is {file_size_mb:.2f} MB (between 5MB and 10MB)."
+            )
+        # If <= 5MB, no warning needed here as it meets the original implicit goal.
+
         return True
 
     except Exception as e:
