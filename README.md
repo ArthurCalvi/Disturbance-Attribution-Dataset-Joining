@@ -20,7 +20,7 @@ graph TD
     H --> I[Disturbance clusters]
 ```
 1. **Preprocessing**: run the notebooks in `process-datasets/` to convert raw files to simplified `.parquet` datasets.
-2. **Join and Attribution**: use the notebooks in `join-datasets/` or the `attribution.py` script to perform the temporo–spatial join and cluster attribution.
+2. **Join and Attribution**: use the modules in `src/join_datasets/` to perform the temporo–spatial join and cluster attribution.
 3. **Visualisation and Analysis**: notebooks in `visualisation/` explore the output clusters and weighting functions.
 
 ## Prerequisites and Installation
@@ -34,7 +34,8 @@ pip install -r requirements.txt
 Open each notebook in `process-datasets/` and run it from top to bottom. The notebooks download or read the raw disturbance data and output simplified `.parquet` files in `data/processed_datasets/`. These paths correspond to `loading_dict` in `join-datasets/constants.py`.
 
 ## Running the Attribution Script
-The `join-datasets/attribution.py` module defines an `Attribution` class. After loading the datasets using the paths in `constants.py`, you can compute clusters for a given year:
+The code has been refactored into a standard package under `src/join_datasets`.
+After loading the datasets using the paths in `constants.py`, you can compute clusters for a given year:
 ```python
 from attribution import Attribution
 from constants import loading_dict, DCLASS_SCORE, ddataset_profile, ddisturbance_profile
@@ -66,5 +67,11 @@ Links for downloading disturbances used in this project:
 The preprocessing notebooks are described in [docs/preprocessing.md](docs/preprocessing.md).
 The attribution workflow is explained in [docs/attribution.md](docs/attribution.md).
 For further methodological context see `draft_article`.
+
+## Tests
+Run the unit tests with:
+```bash
+python -m unittest discover tests
+```
 
 
