@@ -93,7 +93,6 @@ median : 10.0, std : 12.699904343020236
   `compute_class_similarity_v2`, `compute_spatial_distance_v2`,
   `build_custom_matrix_v2`, `get_matrices_v2`, `build_similarity_v2`,
   `get_temporal_period_v2`, `get_spatial_polygon_v2` and `get_cluster_v2`.
-- Prefer the `Attribution2` class (version 0.4) over the original
-  `attribution.py`.
+-  The `Attribution2` class should be rewritten and simplified along the method.
 - Target structure is `src/` with OOP modules and PEP8 compliant code.
 
