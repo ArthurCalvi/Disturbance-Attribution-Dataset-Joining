@@ -14,6 +14,7 @@ import numpy as np
 
 
 def _difference_rasters(r1: str, r2: str) -> np.ndarray:
+    """Return binary difference array between two rasters."""
     with rasterio.open(r1) as src1, rasterio.open(r2) as src2:
         arr = src1.read(1) - src2.read(1)
         arr[(src2.read(1) > 500)] = 32767
@@ -21,7 +22,16 @@ def _difference_rasters(r1: str, r2: str) -> np.ndarray:
         arr[(arr > 32767 - 5000)] = 32767
         arr[arr == 32767] = 0
         arr[arr > 0] = 1
-        return arr.astype('uint8'), src1.transform, src1.crs
+        return arr.astype("uint8"), src1.transform, src1.crs
+
+
+def _extract_year(path: str) -> str:
+    """Extract the first 4-digit year found in a file name."""
+    stem_parts = Path(path).stem.split("_")
+    for part in stem_parts:
+        if part.isdigit() and len(part) == 4:
+            return part
+    raise ValueError(f"Year not found in filename: {path}")
 
 
 def process_forms(rasters: List[str], output_file: str) -> gpd.GeoDataFrame:
@@ -32,8 +42,8 @@ def process_forms(rasters: List[str], output_file: str) -> gpd.GeoDataFrame:
         diff, transform, crs = _difference_rasters(r1, r2)
         for geom, val in shapes(diff, mask=diff > 0, transform=transform):
             geom = shape(geom)
-            year1 = Path(r1).stem.split('_')[0]
-            year2 = Path(r2).stem.split('_')[0]
+            year1 = _extract_year(r1)
+            year2 = _extract_year(r2)
             polygons.append({
                 'geometry': geom,
                 'start_date': datetime.strptime(f'09-{year1}', '%m-%Y'),
@@ -49,6 +59,7 @@ def process_forms(rasters: List[str], output_file: str) -> gpd.GeoDataFrame:
         )
     gdf['class'] = 'clear-cut'
     gdf['dataset'] = 'forms'
+    gdf['year'] = gdf['start_date'].dt.year
     if output_file:
         gdf.to_parquet(output_file)
     return gdf

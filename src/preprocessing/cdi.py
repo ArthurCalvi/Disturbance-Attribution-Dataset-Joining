@@ -23,16 +23,21 @@ def process_cdi(input_dir: str, output_file: str) -> gpd.GeoDataFrame:
             if mask.any():
                 for geom, val in shapes(image, mask=mask, transform=src.transform):
                     if val >= 7:
+                        date_str = tif.stem.split('_')[-2]
                         polygons.append({
                             'geometry': shape(geom),
-                            'start_date': datetime.strptime(tif.stem.split('_')[3], '%Y%m%d'),
-                            'end_date': datetime.strptime(tif.stem.split('_')[3], '%Y%m%d'),
+                            'start_date': datetime.strptime(date_str, '%Y%m%d'),
+                            'end_date': datetime.strptime(date_str, '%Y%m%d'),
                         })
 
     gdf = gpd.GeoDataFrame(polygons, geometry='geometry', crs=src.crs if polygons else 'EPSG:3035')
     gdf = gdf.to_crs('EPSG:2154')
     gdf['class'] = 'drought'
     gdf['dataset'] = 'cdi'
+    if not gdf.empty:
+        gdf['year'] = gdf['start_date'].dt.year
+    else:
+        gdf['year'] = []
     if output_file:
         gdf.to_parquet(output_file)
     return gdf
