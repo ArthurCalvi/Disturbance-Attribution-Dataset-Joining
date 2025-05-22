@@ -133,4 +133,44 @@
 *   **Updated `excerpts/excerpts_creation_summary.md`:**
     *   Added a section detailing the excerpt creation for the Fire Polygons data (both GPKG geometries and CSV attributes).
     *   Added a new section detailing the CDI raster excerpt creation process, noting the cropping, data type optimization (`uint8`), LZW compression, and that the output remains as individual GeoTIFF files (one per time step) but smaller and clipped.
-    *   Added a section detailing the FORMS raster excerpt creation process. 
+    *   Added a section detailing the FORMS raster excerpt creation process.
+
+# Project Progress Log
+
+## Initial Setup
+- Cloned repository.
+- Analyzed existing `create_forms_raster_excerpt.py` script.
+
+## Task: Modify script for multiple files and synchronized BBOX reduction
+- **Goal:** Adapt the script to process a list of input GeoTIFF files. If any file requires its BBOX to be reduced to meet size constraints, this reduction (as a scaling factor) should be applied to a master BBOX, and all files should then be processed using this commonly scaled BBOX.
+
+- **Plan:**
+    1.  **Update Constants**:
+        *   Change `FORMS_RASTER_FILE_PATH` to `FORMS_RASTER_FILE_PATHS` (list).
+        *   Make output filenames dynamic based on input filenames.
+    2.  **Refactor Core Logic with New Helper Functions**:
+        *   `_get_raster_info(src_path)`: Fetches raster metadata (profile, CRS, nodata).
+        *   `_crop_and_write_raster(...)`: Handles the actual cropping and writing of a raster excerpt using a given BBOX. It will manage temporary files for size checking and write the final output. It will also handle edge cases like no BBOX overlap or zero-dimension crops by creating minimal valid rasters.
+    3.  **New Sizing Strategy Function `determine_min_bbox_and_scale_for_size(...)`**:
+        *   This function will replace the core logic of the old `create_raster_excerpt_with_size_control`.
+        *   It will take a single raster path, an initial BBOX for that raster (already in the raster's CRS), and size constraints.
+        *   It will use `_crop_and_write_raster` with temporary file paths to perform iterative scaling (direct calculation then fallback attempts) if the initial BBOX excerpt is too large.
+        *   It will return the final BBOX achieved *for that file* (in its CRS) and the *effective side scaling factor* that was applied to the initial BBOX it received to meet the constraint. If no scaling was needed, this factor is 1.0.
+    4.  **Main Function `create_forms_raster_excerpts_synced_bbox(...)`**:
+        *   This function will replace the old `create_forms_raster_excerpt()`.
+        *   It will manage a two-pass process.
+        *   **Pass 1: Determine Common BBOX Scaling**:
+            *   Define a `master_initial_bbox_epsg2154` from `BBOX_COORDS_EPSG2154`.
+            *   For each input file:
+                *   Get its CRS and transform `master_initial_bbox_epsg2154` to this CRS.
+                *   Call `determine_min_bbox_and_scale_for_size` with this transformed BBOX.
+                *   Track the minimum `effective_side_scale_factor` required across all files. Let this be `overall_min_effective_side_scale`.
+            *   If `overall_min_effective_side_scale < 1.0`, scale down the `master_initial_bbox_epsg2154` by this factor to get the `final_common_bbox_epsg2154`. Otherwise, `final_common_bbox_epsg2154` is the same as `master_initial_bbox_epsg2154`.
+        *   **Pass 2: Create Final Excerpts**:
+            *   For each input file:
+                *   Transform `final_common_bbox_epsg2154` to the file's CRS.
+                *   Call `_crop_and_write_raster` to generate the final excerpt using this (potentially reduced) common BBOX.
+                *   Log the final size. If it still exceeds `HARD_MAX_SIZE_MB` (e.g., due to compression differences or if the common BBOX wasn't small enough for this specific file's content), log a critical warning.
+    5.  **Utilities**:
+        *   Use `tempfile` module for managing temporary files/directories needed during the size determination pass.
+        *   Update logging throughout. 
