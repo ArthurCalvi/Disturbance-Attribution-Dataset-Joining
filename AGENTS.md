@@ -96,3 +96,13 @@ median : 10.0, std : 12.699904343020236
 -  The `Attribution2` class should be rewritten and simplified along the method.
 - Target structure is `src/` with OOP modules and PEP8 compliant code.
 
+## Datasets
+
+Only the following data will be used : 
+- cdi
+- hm
+- Senf&Seidl
+- firepolygons
+
+Other data sources are not relevant or have too much uncertainties. 
+
