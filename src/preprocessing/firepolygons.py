@@ -38,7 +38,7 @@ def process_firepolygons(csv_file: str, polygon_dir: str, output_file: str) -> g
         inplace=True,
     )
 
-    cols = ['year', 'code_insee', 'nom_de_la_commune', 'start_date', 'numero']
+    cols = ['year', 'code_insee', 'name', 'start_date', 'numero']
     gdf['uuid'] = gdf[cols].astype(str).agg('_'.join, axis=1)
     gdf['dataset'] = 'firepolygons'
     if output_file:
