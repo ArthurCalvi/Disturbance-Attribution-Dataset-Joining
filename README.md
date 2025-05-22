@@ -56,6 +56,24 @@ Outputs include `disturbances_<year>_g<granularity>_v<version>.parquet` and `clu
 ```
 relative to the `join-datasets` folder. Create the `data/processed_datasets/` directory at the repository root and place the processed `.parquet` files there.
 
+## Required Dataset Columns
+
+During preprocessing, ensure each output dataset provides at least the following columns so the joining algorithms work correctly:
+
+- `geometry` – polygon or point geometry in EPSG:2154
+- `start_date` and `end_date` – disturbance time range
+- `class` – disturbance class
+- `dataset` – dataset name (added automatically by the loader)
+- `year` – fallback year used when detailed dates are missing
+
+Additional fields improve similarity scoring when available:
+
+- `cause` – precise disturbance cause
+- `tree_type` – broad tree type
+- `essence` – tree species
+
+It is acceptable if some of these optional columns cannot be populated; the pipeline still runs but results may be less accurate.
+
 ## Disturbance Data Sources
 Links for downloading disturbances used in this project:
 - **Senf & Seidl maps** – https://zenodo.org/record/8202241 and https://zenodo.org/record/7080016
