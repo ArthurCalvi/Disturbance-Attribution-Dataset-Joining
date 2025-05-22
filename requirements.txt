@@ -36,3 +36,4 @@ rasterio
 thefuzz
 joblib
 openpyxl
+pytest
