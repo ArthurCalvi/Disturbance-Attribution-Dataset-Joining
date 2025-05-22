@@ -96,6 +96,28 @@ median : 10.0, std : 12.699904343020236
 -  The `Attribution2` class should be rewritten and simplified along the method.
 - Target structure is `src/` with OOP modules and PEP8 compliant code.
 
+## Dataset Columns
+
+Each processed dataset should include common attributes so the join and
+clustering algorithms operate correctly:
+
+- `geometry` – polygon or point in EPSG:2154
+- `start_date` – disturbance start
+- `end_date` – disturbance end
+- `class` – dataset specific disturbance class
+- `dataset` – dataset name
+- `year` – fallback year when precise dates are absent
+
+Additional attributes improve the updated similarity functions:
+
+- `cause` – disturbance cause
+- `tree_type` – broad tree type
+- `essence` – tree species
+
+If any of these optional fields cannot be populated during preprocessing it is
+acceptable. The pipeline still runs, but similarity scoring may be less
+accurate.
+
 ## Datasets
 
 Only the following data will be used : 
