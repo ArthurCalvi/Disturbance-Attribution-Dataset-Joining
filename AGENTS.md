@@ -99,10 +99,11 @@ median : 10.0, std : 12.699904343020236
 ## Datasets
 
 Only the following data will be used : 
-- cdi
-- hm
-- Senf&Seidl
-- firepolygons
+- cdi (information on droughts)
+- hm (information on biotic agents)
+- Senf&Seidl (accurate segmentation and basic classification in three classes)
+- firepolygons (fires)
+- forms (clear cut) 
 
 Other data sources are not relevant or have too much uncertainties. 
 
