@@ -129,3 +129,31 @@ Only the following data will be used :
 
 Other data sources are not relevant or have too much uncertainties. 
 
+## Phase 1: Raw Data Excerpt Creation
+
+Before refactoring the main preprocessing and joining pipelines, a set of raw data excerpts has been created. This serves multiple purposes:
+- To have small, manageable versions of the raw datasets for faster iteration when developing and testing new preprocessing scripts.
+- To ensure a consistent area of interest (BBOX) is used for initial processing tests.
+- To identify and handle initial data loading, CRS, and data type issues early on.
+
+**Process:**
+- Python scripts were developed in a new `data_excerpt_creation/` directory to process each of the key raw datasets:
+    - Senf & Seidl maps (disturbance cause and year rasters)
+    - Health Monitoring (tabular data to vector points)
+    - Fire Polygons (vector polygons and tabular attributes)
+    - Combined Drought Indicator (CDI) (raster time series)
+    - FORMS (forest height raster)
+- These scripts perform tasks like:
+    - Reading various raw data formats (GeoTIFF, Excel, GPKG, CSV).
+    - Cropping raster and vector data to a predefined BBOX: `(307783.0822, 6340505.4366, 469246.8845, 6419190.9011)` in EPSG:2154.
+    - Reprojecting data to the target CRS (EPSG:2154) or ensuring the BBOX is correctly transformed for cropping in the source CRS.
+    - Optimizing data types (e.g., `uint8`, `int16`) and applying compression (e.g., LZW for rasters) to reduce file size.
+    - Implementing strategies to meet file size targets (e.g., iterative BBOX reduction, direct BBOX scaling based on size ratios, row sampling for vector data).
+    - Handling mixed data types and potential errors during conversion (e.g., to Parquet).
+- The generated excerpts are stored in the `excerpts/raw/` directory, often within type-specific subdirectories like `excerpts/raw_raster/`, `excerpts/raw_vector/`, and `excerpts/raw_tabular/`.
+
+**Documentation:**
+A detailed summary of how each raw data excerpt is created, including any changes in file type or structure from the original, is maintained in `excerpts/excerpts_creation_summary.md`. This document is crucial for understanding the starting point for the new preprocessing scripts.
+
+A `progress.md` file is also kept to log the day-to-day steps taken during this and subsequent refactoring phases.
+

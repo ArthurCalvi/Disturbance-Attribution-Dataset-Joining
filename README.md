@@ -7,6 +7,9 @@ Disturbance Attribution by Dataset Temporo-Spatial Joining. This project merges 
 - Join datasets with a reference temporal/spatial grid.
 - Attribute disturbances to produce clusters and summary outputs.
 
+### Initial Phase: Raw Data Excerpt Creation
+As a first step in refactoring and to facilitate development, raw data excerpts have been created for all key datasets. These excerpts are smaller, cropped versions of the original data, intended for testing the new preprocessing scripts. Details of their creation and any format changes are documented in `excerpts/excerpts_creation_summary.md`.
+
 ## High Level Workflow
 ```mermaid
 graph TD
