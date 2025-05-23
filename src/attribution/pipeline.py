@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+
+from dataclasses import dataclass, field
+
 from typing import Dict, Iterable, List, Tuple
 from datetime import datetime
 
 import geopandas as gpd
 import networkx as nx
 import numpy as np
+
 from tqdm.auto import tqdm
 import logging
 
@@ -18,6 +21,7 @@ except Exception as exc:  # pragma: no cover - ensure clear error message
     ) from exc
 
 logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -58,6 +62,7 @@ class Attribution:
         self.cluster_labels: Dict[int, int] = {}
         logger.info("Attribution initialised with %d features", len(self.data))
 
+
     def _prepare_data(self, gdfs: Dict[str, gpd.GeoDataFrame]) -> gpd.GeoDataFrame:
         frames = []
         for name, gdf in gdfs.items():
@@ -77,6 +82,7 @@ class Attribution:
         all_data = gpd.GeoDataFrame(gpd.pd.concat(frames, ignore_index=True), crs=frames[0].crs)
         all_data["uid"] = all_data.index
         logger.debug("Prepared dataframe with columns: %s", list(all_data.columns))
+
         return all_data
 
     # ------------------------------------------------------------------
@@ -123,6 +129,7 @@ class Attribution:
         for idx in tqdm(self.data.index, desc="nodes"):
             self.graph.add_node(idx)
         for i, j in tqdm(self._candidate_pairs(), desc="edges"):
+
             weight = self._edge_weight(i, j)
             if weight > 0:
                 self.graph.add_edge(i, j, weight=weight)
@@ -168,6 +175,7 @@ class Attribution:
         )
         labels = clusterer.fit_predict(X)
         logger.debug("HDBSCAN cluster labels: %s", np.unique(labels))
+
         for node, lab in zip(df.index, labels):
             if lab >= 0:
                 label = cluster_base + lab
@@ -197,6 +205,7 @@ class Attribution:
 
     def attribute(self) -> Dict[int, Dict[str, float]]:
         logger.info("Computing attribution votes")
+
         if "hdb_id" in self.data.columns:
             group_field = "hdb_id"
         else:
