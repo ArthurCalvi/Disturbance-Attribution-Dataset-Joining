@@ -144,6 +144,7 @@
     *   Added a section detailing the excerpt creation for the Fire Polygons data (both GPKG geometries and CSV attributes).
     *   Added a new section detailing the CDI raster excerpt creation process, noting the cropping, data type optimization (`uint8`), LZW compression, and that the output remains as individual GeoTIFF files (one per time step) but smaller and clipped.
     *   Added a section detailing the FORMS raster excerpt creation process.
+    *   Added a section detailing the attribution process. 
 
 # Project Progress Log
 
@@ -238,3 +239,32 @@
     *   Added a new section detailing the CDI raster excerpt creation process, noting the cropping, data type optimization (`uint8`), LZW compression, and that the output remains as individual GeoTIFF files (one per time step) but smaller and clipped.
     *   Added a section detailing the FORMS raster excerpt creation process.
     *   Added a section detailing the attribution process. 
+
+## Task: Implement Date Range Filtering
+- Added `--start-year` and `--end-year` CLI arguments to `src/inference/preprocess_excerpts.py`.
+- Updated `src/preprocessing/senfseidl.py` to accept `start_year` and `end_year` and filter data accordingly.
+- Updated `src/preprocessing/cdi.py` to accept `start_year` and `end_year` and filter data accordingly.
+- Updated `src/inference/preprocess_excerpts.py` to pass year arguments to `process_senfseidl` and `process_cdi`.
+
+## Task: Investigate Missing "Anthropogenic" Class from Senf & Seidl
+- User noted the absence of "Anthropogenic" disturbances from Senf & Seidl outputs.
+- **Initial thought**: Issue with Senf & Seidl preprocessing or class mapping.
+    - Reviewed `src/config/constants.py`: `RAW_TO_FINAL_TARGET_MAPPINGS['senfseidl']` does not currently have a mapping that results in 'Anthropogenic'.
+    - Reviewed `src/preprocessing/senfseidl.py`: The `SENFSEIDL_CODE_TO_RAW_CAUSE` map (`{1: 'Storm,Biotic', 2: 'Fire', 3: 'Other'}`) does not include a code for anthropogenic activities.
+- **Clarification**: User expects Senf & Seidl events to be *attributed* as 'Anthropogenic' if they cluster with 'Anthropogenic' events from other datasets (e.g., FORMS), even if Senf & Seidl itself doesn't have an original 'Anthropogenic' class.
+- **Current Investigation**: Reviewing the `attribute` method in `src/attribution/pipeline.py`.
+    - The method calculates weighted votes for classes from all datasets within a cluster.
+    - It adds a 'self-vote' for the Senf & Seidl event's original class.
+    - Probabilities are then normalized.
+- **Hypotheses for missing 'Anthropogenic' attribution for Senf & Seidl events**:
+    1.  Relevant Senf & Seidl events are not clustering with 'Anthropogenic' events from FORMS (or other datasets).
+    2.  Senf & Seidl's original class (which gets a self-vote) combined with votes from other non-anthropogenic classes in the cluster outweighs any 'Anthropogenic' votes from FORMS.
+    3.  Spatio-temporal parameters for graph building/clustering might be too restrictive, preventing linkage between Senf & Seidl and FORMS events.
+- **Next Steps**: User to investigate cluster compositions of specific Senf & Seidl events to see if they are co-clustered with FORMS 'Anthropogenic' events. Based on findings, parameters or attribution logic might need adjustment.
+
+## Task: Remap Senf & Seidl 'Other' Class to 'Anthropogenic'
+- Based on user feedback that Senf & Seidl's 'Other' class (cause code 3) often represents anthropogenic disturbances in reality.
+- Modified `src/config/constants.py` in `RAW_TO_FINAL_TARGET_MAPPINGS['senfseidl']` to map `'Other'` to `'Anthropogenic'` (previously `'Unknown'`).
+- This will result in Senf & Seidl events with cause code 3 being directly classified as 'Anthropogenic' during preprocessing.
+- This change should increase the prevalence of 'Anthropogenic' attributes for Senf & Seidl events, both directly and through the self-vote mechanism in the attribution pipeline.
+- User will re-run preprocessing and attribution to observe the impact. 

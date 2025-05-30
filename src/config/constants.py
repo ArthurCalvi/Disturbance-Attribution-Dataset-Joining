@@ -22,7 +22,7 @@ RAW_TO_FINAL_TARGET_MAPPINGS = {
         # Raw classes now reflect the simplified 1,2,3 mapping from the Senf&Seidl cause raster
         'Storm,Biotic': 'Biotic', 
         'Fire': 'Fire',
-        'Other': 'Unknown', 
+        'Other': 'Unknown',
     },
     'cdi': {
         'drought': 'Drought', # CDI directly indicates Drought
