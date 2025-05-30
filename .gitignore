@@ -1,6 +1,9 @@
 /data/
 /figures/
 /GoogleEarth/
+/annotation/
+/old-images/
+/sampling/
 
 # Ignore macOS and Python artifacts
 .DS_Store
