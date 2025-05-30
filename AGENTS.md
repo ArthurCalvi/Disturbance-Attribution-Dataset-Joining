@@ -157,3 +157,9 @@ A detailed summary of how each raw data excerpt is created, including any change
 
 A `progress.md` file is also kept to log the day-to-day steps taken during this and subsequent refactoring phases.
 
+## Current Refactoring Status
+
+- Preprocessing notebooks have been migrated into the `src/preprocessing/` package with unit tests validating each dataset handler.
+- A new `src/attribution/` package implements the updated graph-based pipeline described in `ATTRIBUTION.md` and includes its own tests.
+- **Next mission:** create an `src/inference/` directory that orchestrates the full workflow from preprocessing through attribution.
+

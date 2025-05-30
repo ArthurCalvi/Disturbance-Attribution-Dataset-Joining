@@ -1,5 +1,15 @@
 # Project Progress
 
+## Summary
+
+- Created raw data excerpts to facilitate testing.
+- Refactored preprocessing notebooks into `src/preprocessing/` modules with
+  unit tests.
+- Implemented a new graph-based attribution pipeline in `src/attribution/` with
+  tests.
+- Next objective is to integrate these components through an `src/inference/`
+  package.
+
 ## Initial Setup
 - Understood the goal: Extract BBOX-defined excerpts from multiple spatial Parquet datasets.
 - Identified target datasets from `join-datasets/constants.py`.
