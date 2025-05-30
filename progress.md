@@ -183,4 +183,58 @@
                 *   Log the final size. If it still exceeds `HARD_MAX_SIZE_MB` (e.g., due to compression differences or if the common BBOX wasn't small enough for this specific file's content), log a critical warning.
     5.  **Utilities**:
         *   Use `tempfile` module for managing temporary files/directories needed during the size determination pass.
-        *   Update logging throughout. 
+        *   Update logging throughout.
+
+## Current Refactoring Status
+
+- Preprocessing notebooks have been migrated into the `src/preprocessing/` package with unit tests validating each dataset handler.
+- A new `src/attribution/` package implements the updated graph-based pipeline described in `ATTRIBUTION.md` and includes its own tests.
+- **Next mission:** create an `src/inference/` directory that orchestrates the full workflow from preprocessing through attribution.
+
+## Task: Create `src/inference/preprocess_excerpts.py`
+- Create a script to preprocess all raw excerpts from `excerpts/raw/` using the modules in `src/preprocessing/`.
+- Save outputs to `outputs/preprocessing/`.
+- Ensure all datasets (`cdi`, `hm`, `SenfSeidl`, `firepolygons`, `forms`) are processed.
+- Script created and ran successfully.
+
+## Task: Create `src/inference/perform_attribution.py`
+- Create a script to load preprocessed data from `outputs/preprocessing/`.
+- Use the `Attribution` class from `src/attribution/` to perform graph building, community detection, HDBSCAN clustering, and final attribution.
+- Save the attribution results (e.g., the final GeoDataFrame with cluster/community info).
+- Encountered `TypeError` due to mixed timezone-aware and naive datetimes during graph building.
+- Modified `src/attribution/pipeline.py` to standardize date columns to naive UTC in `_prepare_data` method.
+- Added record count logging to `src/inference/preprocess_excerpts.py` for better visibility of preprocessing output sizes.
+
+## Task: Investigate High Event Count from Senf & Seidl
+- User concerned about ~500k events from Senf & Seidl preprocessing.
+- Plan to create a QC script (`src/qc/check_preprocessing.py`) to:
+    - Generate a visual plot of preprocessed polygons.
+    - Output summary statistics (e.g., area distribution).
+- Modify `preprocess_excerpts.py` to run this QC script for each dataset.
+- Discuss potential use of `geopandas.dissolve` to consolidate events if QC indicates fragmentation.
+
+## Task: Adjust Attribution Parameters & Re-run
+- User concerned about large default spatial parameters in the attribution pipeline (6000m radius, 1000m half-life).
+- Reduced `spatial_half_life` to 300m, candidate search radius to 1500m, and hard distance cutoff to 1500m in `src/attribution/pipeline.py` for a more realistic starting point, especially given Senf & Seidl data granularity.
+
+## Task: Refine Senf & Seidl Preprocessing for Better Consolidation
+- Observed that the high number of Senf & Seidl events (~500k) is likely due to pixel-level vectorization.
+- Refactored `src/preprocessing/senfseidl.py` based on `Process_SenfSeidlmap.ipynb` logic:
+    - Independent vectorization of year and cause rasters.
+    - Spatial join between year and cause polygons.
+    - Dissolve by year and cause to merge contiguous/overlapping events.
+    - Explode MultiPolygons to ensure one feature per distinct polygon.
+- This aims to reduce feature count and better represent distinct disturbance events.
+- Corrected `TypeError` in `preprocess_excerpts.py` call to `senfseidl.process_senfseidl` due to renamed keyword arguments.
+- Corrected `NameError: name 'pd' is not defined` in `src/preprocessing/senfseidl.py` by adding `import pandas as pd`.
+
+### Documentation
+
+*   **Created `excerpts/excerpts_creation_summary.md`:**
+    *   Added a brief markdown file summarizing the excerpt creation process for the Senf & Seidl rasters and the Health Monitoring vector data.
+    *   This summary notes how excerpts were made and any changes in file type from the original, which is relevant for understanding preprocessing needs.
+*   **Updated `excerpts/excerpts_creation_summary.md`:**
+    *   Added a section detailing the excerpt creation for the Fire Polygons data (both GPKG geometries and CSV attributes).
+    *   Added a new section detailing the CDI raster excerpt creation process, noting the cropping, data type optimization (`uint8`), LZW compression, and that the output remains as individual GeoTIFF files (one per time step) but smaller and clipped.
+    *   Added a section detailing the FORMS raster excerpt creation process.
+    *   Added a section detailing the attribution process. 

@@ -17,7 +17,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Path to the FORMS GeoTIFF files - now a list
 FORMS_RASTER_FILE_PATHS = [
     '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2023.tif',
-    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2022.tif'
+    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2022.tif',
+    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2019.tif',
+    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2018.tif',
 ]
 
 # BBOX coordinates (minx, miny, maxx, maxy) in EPSG:2154

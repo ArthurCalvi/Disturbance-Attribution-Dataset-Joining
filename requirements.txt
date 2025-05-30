@@ -37,3 +37,4 @@ thefuzz
 joblib
 openpyxl
 pytest
+hdbscan

@@ -4,9 +4,13 @@
 /annotation/
 /old-images/
 /sampling/
+/outputs/
 
 # Ignore macOS and Python artifacts
 .DS_Store
 __pycache__/
 .ipynb_checkpoints/
 .venv/
+*.png
+*.parquet
+
