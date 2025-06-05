@@ -20,9 +20,10 @@ FINAL_TARGET_CLASSES = [
 RAW_TO_FINAL_TARGET_MAPPINGS = {
     'senfseidl': {
         # Raw classes now reflect the simplified 1,2,3 mapping from the Senf&Seidl cause raster
-        'Storm,Biotic': 'Biotic', 
+        # Non‑injective mapping encoded as comma separated final classes
+        'Storm,Biotic': 'Storm,Biotic',
         'Fire': 'Fire',
-        'Other': 'Unknown',
+        'Other': 'Anthropogenic,Unknown,Drought',
     },
     'cdi': {
         'drought': 'Drought', # CDI directly indicates Drought

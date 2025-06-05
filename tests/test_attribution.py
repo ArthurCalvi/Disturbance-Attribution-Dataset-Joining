@@ -50,5 +50,6 @@ def test_attribution_pipeline():
 
     assert attr.graph.number_of_nodes() == len(attr.data)
     assert "community_id" in attr.data.columns
-    assert isinstance(result, dict)
+    assert isinstance(result, gpd.GeoDataFrame)
+    assert any(col.startswith("prob_") for col in result.columns)
     assert all(t > 0 for t in timings.values())
