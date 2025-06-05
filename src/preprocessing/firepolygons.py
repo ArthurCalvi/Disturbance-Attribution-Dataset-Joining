@@ -167,15 +167,26 @@ def process_firepolygons(
         # Assign class using the mapping from constants
         # For firepolygons, we use a default raw class key since the dataset is implicitly fire.
         raw_fire_class_key = '_default_' 
-        firepolygons_class_mapping = RAW_TO_FINAL_TARGET_MAPPINGS.get('firepolygons', {})
-        final_target_class = firepolygons_class_mapping.get(raw_fire_class_key, 'Unknown')
+        firepolygons_map = RAW_TO_FINAL_TARGET_MAPPINGS.get('firepolygons')
+        final_target_class_val = None
 
-        if final_target_class == 'Unknown' and raw_fire_class_key in firepolygons_class_mapping:
-            logger.warning(f"Firepolygons raw class key '{raw_fire_class_key}' mapped to 'Unknown' but was in constants. Check mapping.")
-        elif final_target_class == 'Unknown':
-            logger.warning(f"Firepolygons raw class key '{raw_fire_class_key}' not found in RAW_TO_FINAL_TARGET_MAPPINGS for 'firepolygons'. Defaulting to 'Unknown'.")
+        if firepolygons_map:
+            # Use the _default_ key as per logic for this dataset
+            final_target_class_val = firepolygons_map.get(raw_fire_class_key)
+        
+        if not final_target_class_val: # If firepolygons_map is None, or _default_ key is missing
+            final_target_class_val = ['Unknown'] # Default to ['Unknown']
+            logger.warning(
+                f"Firepolygons mapping for key '{raw_fire_class_key}' not found in "
+                f"RAW_TO_FINAL_TARGET_MAPPINGS['firepolygons']. Defaulting to {final_target_class_val}."
+            )
+        
+        # Ensure final_target_class_val is a list, as expected from constants.
+        if not isinstance(final_target_class_val, list):
+            logger.warning(f"Expected list for firepolygons final_target_class_val from mapping, got {type(final_target_class_val)}. Converting to list: {[str(final_target_class_val)]}")
+            final_target_class_val = [str(final_target_class_val)]
 
-        gdf_merged['class'] = final_target_class
+        gdf_merged['class'] = [list(final_target_class_val) for _ in range(len(gdf_merged))]
 
         final_columns_ordered = [
             'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',

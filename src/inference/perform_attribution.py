@@ -11,6 +11,7 @@ import argparse # Import argparse
 import shutil # Import shutil for clearing cache directory
 import warnings # Import warnings
 import subprocess # For calling the QC script
+import numpy as np # Added for np.ndarray
 
 # Suppress specific FutureWarning from sklearn used by hdbscan
 warnings.simplefilter(action='ignore', category=FutureWarning) 
@@ -173,6 +174,50 @@ def main():
             # NaN communities (nodes not assigned) are not counted by nunique() by default if dropna=True (default)
             # If you want to count NaN as a separate group, you'd use dropna=False
             logging.info(f"Communities detected in {timings['detect_communities']:.2f} seconds. Found {num_communities} distinct communities.")
+            
+            # Analyze community composition for Senf&Seidl-only communities
+            all_data_grouped_by_community = attr.data.groupby('community_id')['dataset'].apply(lambda x: set(x))
+            senf_only_community_ids = all_data_grouped_by_community[all_data_grouped_by_community == {'senfseidl'}].index.tolist()
+            
+            if senf_only_community_ids:
+                # Debugging log remains here as it was useful
+                senf_events_for_debug = attr.data[
+                    (attr.data['dataset'] == 'senfseidl') &
+                    (attr.data['community_id'].isin(senf_only_community_ids))
+                ]
+                if not senf_events_for_debug.empty:
+                    logging.info("--- Debugging Senf&Seidl 'class' column (sample from S&S-only communities) ---")
+                    for i, (idx, row) in enumerate(senf_events_for_debug.iterrows()):
+                        if i < 5:
+                            class_val_debug = row.get('class')
+                            raw_cause_debug = row.get('raw_cause_description', 'N/A')
+                            logging.info(f"  Sample {i}: Index {idx}, RawCause: '{raw_cause_debug}', Class: {class_val_debug} (Type: {type(class_val_debug)}), IsListOrArray: {isinstance(class_val_debug, (list, np.ndarray))}, Len>1: {isinstance(class_val_debug, (list, np.ndarray)) and len(class_val_debug) > 1}")
+                        else:
+                            break
+                    logging.info("---------------------------------------------------------------------------------")
+
+                senf_only_data = attr.data[
+                    (attr.data['community_id'].isin(senf_only_community_ids)) &
+                    (attr.data['dataset'] == 'senfseidl')
+                ]
+                total_events_in_senf_only_communities = len(senf_only_data)
+                
+                ambiguous_event_count_in_senf_only_communities = 0
+                for idx, row in senf_only_data.iterrows():
+                    class_val = row.get('class')
+                    # MODIFIED AMBIGUITY CHECK
+                    if isinstance(class_val, (list, np.ndarray)) and len(class_val) > 1:
+                        ambiguous_event_count_in_senf_only_communities += 1
+                
+                logging.info(f"--- Senf&Seidl-only Community Analysis (Pre-Attribution) ---")
+                logging.info(f"Number of communities containing ONLY Senf&Seidl polygons: {len(senf_only_community_ids)}")
+                logging.info(f"Total Senf&Seidl events in these Senf&Seidl-only communities: {total_events_in_senf_only_communities}")
+                if total_events_in_senf_only_communities > 0:
+                    percentage_ambiguous = (ambiguous_event_count_in_senf_only_communities / total_events_in_senf_only_communities) * 100
+                    logging.info(f"Senf&Seidl events with ambiguous classes (list/array length > 1) in these communities: {ambiguous_event_count_in_senf_only_communities} ({percentage_ambiguous:.1f}%)")
+                else:
+                    logging.info(f"Senf&Seidl events with ambiguous classes (list/array length > 1) in these communities: 0 (0.0%)")
+                logging.info(f"---------------------------------------------------------------")
 
             # --- Call QC script for community size distribution ---
             temp_community_data_path = TEMP_ATTRIBUTION_DIR / "data_with_communities_for_qc.parquet"
@@ -231,10 +276,125 @@ def main():
 
         # 4. Save results
         if final_attributed_gdf is not None and not final_attributed_gdf.empty:
+            # --- Standardize final attribution class and confidence columns ---
+            logging.info("Standardizing final attribution class and confidence columns for all datasets...")
+            # Identify probability columns (e.g., 'prob_Fire', 'prob_Biotic')
+            prob_cols = [col for col in final_attributed_gdf.columns if col.startswith("prob_") and col not in ["prob_sum", "prob_max"]] # Exclude helper columns if they exist
+            if prob_cols:
+                logging.info(f"Found probability columns: {prob_cols}")
+                final_attributed_gdf['temp_prob_sum'] = final_attributed_gdf[prob_cols].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
+                rows_with_probs_mask = final_attributed_gdf['temp_prob_sum'] > 0
+                final_attributed_gdf.loc[rows_with_probs_mask, 'attributed_class_final'] = final_attributed_gdf.loc[rows_with_probs_mask, prob_cols].idxmax(axis=1).str.replace("prob_", "")
+                final_attributed_gdf.loc[rows_with_probs_mask, 'attribution_confidence_final'] = final_attributed_gdf.loc[rows_with_probs_mask, prob_cols].max(axis=1)
+                logging.info(f"{rows_with_probs_mask.sum()} records had attribution derived from probability columns.")
+                rows_without_probs_mask = ~rows_with_probs_mask
+                if 'class' in final_attributed_gdf.columns:
+                    final_attributed_gdf.loc[rows_without_probs_mask, 'attributed_class_final'] = final_attributed_gdf.loc[rows_without_probs_mask, 'class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else (x if isinstance(x, str) else 'Unknown')
+                    )
+                    final_attributed_gdf.loc[rows_without_probs_mask, 'attribution_confidence_final'] = 1.0
+                    logging.info(f"{rows_without_probs_mask.sum()} records had attribution derived from pre-existing 'class' column with confidence 1.0.")
+                else:
+                    final_attributed_gdf.loc[rows_without_probs_mask, 'attributed_class_final'] = 'Unknown'
+                    final_attributed_gdf.loc[rows_without_probs_mask, 'attribution_confidence_final'] = 0.0
+                    logging.warning("'class' column not found for records without probabilities. Attributed class set to 'Unknown'.")
+                final_attributed_gdf.drop(columns=['temp_prob_sum'], inplace=True, errors='ignore')
+            else:
+                logging.warning("No probability columns (prob_*) found in the attribution output. Deriving final class from 'class' column for all records.")
+                if 'class' in final_attributed_gdf.columns:
+                    final_attributed_gdf['attributed_class_final'] = final_attributed_gdf['class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else (x if isinstance(x, str) else 'Unknown')
+                    )
+                    final_attributed_gdf['attribution_confidence_final'] = 1.0
+                else:
+                    final_attributed_gdf['attributed_class_final'] = 'Unknown'
+                    final_attributed_gdf['attribution_confidence_final'] = 0.0
+                    logging.error("'class' column also not found. Cannot determine final attributed class.")
+
+            # --- Log new community/isolation stats (Post-Attribution) ---
+            if 'community_id' in final_attributed_gdf.columns and 'dataset' in final_attributed_gdf.columns and 'class' in final_attributed_gdf.columns:
+                senf_gdf_final = final_attributed_gdf[final_attributed_gdf['dataset'] == 'senfseidl']
+                
+                final_all_data_grouped_by_community = final_attributed_gdf.groupby('community_id')['dataset'].apply(lambda x: set(x))
+                final_senf_only_community_ids = final_all_data_grouped_by_community[final_all_data_grouped_by_community == {'senfseidl'}].index.tolist()
+
+                num_senf_only_communities_final = len(final_senf_only_community_ids)
+                events_in_senf_only_communities_final = senf_gdf_final[senf_gdf_final['community_id'].isin(final_senf_only_community_ids)]
+                total_events_in_senf_only_final = len(events_in_senf_only_communities_final)
+                
+                ambiguous_events_in_senf_only_final_count = 0
+                for _, row in events_in_senf_only_communities_final.iterrows():
+                    class_val = row.get('class')
+                    # MODIFIED AMBIGUITY CHECK
+                    if isinstance(class_val, (list, np.ndarray)) and len(class_val) > 1:
+                        ambiguous_events_in_senf_only_final_count += 1
+                
+                logging.info(f"--- Post-Attribution Senf&Seidl Community Stats ---")
+                logging.info(f"Number of Senf&Seidl-only communities: {num_senf_only_communities_final}")
+                logging.info(f"Total Senf&Seidl events in these Senf&Seidl-only communities: {total_events_in_senf_only_final}")
+                if total_events_in_senf_only_final > 0:
+                    perc_ambiguous_in_senf_only = (ambiguous_events_in_senf_only_final_count / total_events_in_senf_only_final) * 100
+                    logging.info(f"  Of which, events with originally ambiguous classes (list/array > 1): {ambiguous_events_in_senf_only_final_count} ({perc_ambiguous_in_senf_only:.1f}%)")
+                else:
+                    logging.info(f"  Of which, events with originally ambiguous classes (list/array > 1): 0 (0.0%)")
+
+                isolated_senf_events_final_df = senf_gdf_final[senf_gdf_final['community_id'].isna()]
+                
+                if num_senf_only_communities_final > 0:
+                    community_sizes = senf_gdf_final.groupby('community_id').size()
+                    single_member_senf_communities = community_sizes[community_sizes == 1].index
+                    single_member_senf_events_df = senf_gdf_final[
+                        senf_gdf_final['community_id'].isin(single_member_senf_communities) & 
+                        senf_gdf_final['community_id'].notna() & 
+                        senf_gdf_final['community_id'].isin(final_senf_only_community_ids)
+                    ]
+                    if not single_member_senf_events_df.empty:
+                         isolated_senf_events_final_df = pd.concat([isolated_senf_events_final_df, single_member_senf_events_df]).drop_duplicates(subset=['uid'] if 'uid' in senf_gdf_final else None)
+
+                total_isolated_senf_final = len(isolated_senf_events_final_df)
+                ambiguous_isolated_senf_final_count = 0
+                for _, row in isolated_senf_events_final_df.iterrows():
+                    class_val = row.get('class')
+                    # MODIFIED AMBIGUITY CHECK
+                    if isinstance(class_val, (list, np.ndarray)) and len(class_val) > 1:
+                        ambiguous_isolated_senf_final_count += 1
+                
+                logging.info(f"Total isolated Senf&Seidl events (NaN community_id or alone in S&S-only community): {total_isolated_senf_final}")
+                if total_isolated_senf_final > 0:
+                    perc_ambiguous_isolated = (ambiguous_isolated_senf_final_count / total_isolated_senf_final) * 100
+                    logging.info(f"  Of which, events with originally ambiguous classes (list/array > 1): {ambiguous_isolated_senf_final_count} ({perc_ambiguous_isolated:.1f}%)")
+                else:
+                     logging.info(f"  Of which, events with originally ambiguous classes (list/array > 1): 0 (0.0%)")
+                logging.info(f"-----------------------------------------------------")
+            else:
+                logging.warning("Could not log detailed Senf&Seidl community/isolation stats post-attribution due to missing columns (community_id, dataset, or class)." )
+
             output_path = OUTPUT_ATTRIBUTION_DIR / "final_attributed_disturbances.parquet"
             logging.info(f"Saving final attributed GeoDataFrame to {output_path}...")
             final_attributed_gdf.to_parquet(output_path)
             logging.info(f"Successfully saved final results with {len(final_attributed_gdf)} records.")
+
+            # --- Call QC script for final attribution results ---
+            try:
+                logging.info(f"Generating QC plots for final attribution results...")
+                qc_attribution_script_path = PROJECT_ROOT / "src" / "qc" / "plot_attribution_results.py"
+                qc_attribution_output_dir = BASE_DIR / "outputs" / "qc_attribution" # Matches default in plotting script
+                qc_attribution_output_dir.mkdir(parents=True, exist_ok=True)
+
+                subprocess.run(
+                    [sys.executable, str(qc_attribution_script_path), str(output_path), "--output-dir", str(qc_attribution_output_dir)],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                logging.info(f"Successfully generated attribution QC plots in {qc_attribution_output_dir}")
+            except FileNotFoundError:
+                logging.error(f"Attribution QC script not found at {qc_attribution_script_path}. Skipping plots.")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Attribution QC script failed:\nStdout:\n{e.stdout}\nStderr:\n{e.stderr}")
+            except Exception as e:
+                logging.error(f"An error occurred while generating attribution QC plots: {e}", exc_info=True)
+            # --- End QC script call for final attribution ---
 
             # --- Add stats on final attribution for Senf&Seidl events ---
             senf_events = final_attributed_gdf[final_attributed_gdf["dataset"] == "senfseidl"].copy() # Ensure it's a copy
@@ -248,37 +408,39 @@ def main():
                 # The `attribute` method in pipeline.py initializes prob_ columns based on self.data["class"].unique().
                 # Since preprocessing scripts now put FINAL_TARGET_CLASSES values into self.data["class"],
                 # the prob_ columns from attribute() should already be like prob_Fire, prob_Biotic.
-                final_prob_cols = [col for col in senf_events.columns if col.startswith("prob_")]
-                
-                if final_prob_cols:
+                # final_prob_cols = [col for col in senf_events.columns if col.startswith("prob_")] # Already defined above and used for all GDF
+
+                # if final_prob_cols: # This check is now redundant if attributed_class_final exists
+                if 'attributed_class_final' in senf_events.columns and 'attribution_confidence_final' in senf_events.columns:
                     # No aggregation step needed anymore.
                     # The prob_ columns from attr.attribute() are now the final target probabilities.
-                    logging.info(f"Using final probability columns directly from attribution output: {final_prob_cols}")
+                    # logging.info(f"Using final probability columns directly from attribution output: {final_prob_cols}")
 
                     # Determine winning class and confidence based on these direct final probabilities
-                    senf_events["winning_class"] = senf_events[final_prob_cols].idxmax(axis=1).str.replace("prob_", "")
-                    senf_events["winning_confidence"] = senf_events[final_prob_cols].max(axis=1)
+                    # senf_events["winning_class"] = senf_events[final_prob_cols].idxmax(axis=1).str.replace("prob_", "")
+                    # senf_events["winning_confidence"] = senf_events[final_prob_cols].max(axis=1)
+                    # These are now 'attributed_class_final' and 'attribution_confidence_final'
 
-                    logging.info("--- Final Attribution Statistics for Senf&Seidl Events (Based on Direct Final Classes) ---")
+                    logging.info("--- Final Attribution Statistics for Senf&Seidl Events (Based on Standardized Columns) ---")
                     logging.info(f"Total Senf&Seidl events processed for attribution: {len(senf_events)}")
                     
-                    logging.info("Distribution of winning classes:")
-                    winning_class_counts = senf_events["winning_class"].value_counts()
+                    logging.info("Distribution of attributed_class_final:")
+                    winning_class_counts = senf_events["attributed_class_final"].value_counts()
                     for cls, count in winning_class_counts.items():
                         logging.info(f"  {cls}: {count} events ({count / len(senf_events) * 100:.2f}%)")
 
-                    logging.info("Confidence of winning class:")
-                    logging.info(f"  Min confidence: {senf_events['winning_confidence'].min():.3f}")
-                    logging.info(f"  Mean confidence: {senf_events['winning_confidence'].mean():.3f}")
-                    logging.info(f"  Median confidence: {senf_events['winning_confidence'].median():.3f}")
-                    logging.info(f"  Max confidence: {senf_events['winning_confidence'].max():.3f}")
+                    logging.info("Confidence of attributed_class_final (attribution_confidence_final):")
+                    logging.info(f"  Min confidence: {senf_events['attribution_confidence_final'].min():.3f}")
+                    logging.info(f"  Mean confidence: {senf_events['attribution_confidence_final'].mean():.3f}")
+                    logging.info(f"  Median confidence: {senf_events['attribution_confidence_final'].median():.3f}")
+                    logging.info(f"  Max confidence: {senf_events['attribution_confidence_final'].max():.3f}")
                     
-                    low_confidence_threshold = 0.5
-                    num_low_confidence = (senf_events['winning_confidence'] <= low_confidence_threshold).sum()
-                    logging.info(f"Number of Senf&Seidl events with winning confidence <= {low_confidence_threshold}: {num_low_confidence} ({num_low_confidence / len(senf_events) * 100:.2f}%)")
+                    low_confidence_threshold = 0.5 # Can be adjusted
+                    num_low_confidence = (senf_events['attribution_confidence_final'] <= low_confidence_threshold).sum()
+                    logging.info(f"Number of Senf&Seidl events with attribution_confidence_final <= {low_confidence_threshold}: {num_low_confidence} ({num_low_confidence / len(senf_events) * 100:.2f}%)")
                     logging.info("-----------------------------------------------------------")
                 else:
-                    logging.warning("No probability columns (prob_*) found for Senf&Seidl events. Cannot compute final attribution stats.")
+                    logging.warning("Could not find 'attributed_class_final' or 'attribution_confidence_final' columns for Senf&Seidl events. Cannot compute final attribution stats.")
             else:
                 logging.info("No Senf&Seidl events found in the final attributed data to generate stats for.")
             # --- End stats on final attribution ---

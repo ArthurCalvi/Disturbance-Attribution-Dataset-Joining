@@ -109,18 +109,27 @@ def process_forms(
         
         # Assign class using the mapping from constants
         raw_forms_class = 'clear-cut' # This is the implicit raw class for FORMS events
-        forms_class_mapping = RAW_TO_FINAL_TARGET_MAPPINGS.get('forms', {})
-        
-        # Try direct mapping first, then fallback to _default_ if specific key not found
-        final_target_class = forms_class_mapping.get(raw_forms_class, forms_class_mapping.get('_default_', 'Unknown'))
+        forms_map = RAW_TO_FINAL_TARGET_MAPPINGS.get('forms')
+        final_target_class_val = None
 
-        if final_target_class == 'Unknown':
-            if raw_forms_class in forms_class_mapping or '_default_' in forms_class_mapping:
-                 logger.warning(f"FORMS raw class '{raw_forms_class}' or '_default_' mapped to 'Unknown' but was in constants. Check mapping.")
-            else:
-                logger.warning(f"FORMS raw class '{raw_forms_class}' and '_default_' not found in RAW_TO_FINAL_TARGET_MAPPINGS for 'forms'. Defaulting to 'Unknown'.")
+        if forms_map:
+            # Try direct mapping first, then fallback to _default_ if specific key not found
+            final_target_class_val = forms_map.get(raw_forms_class, forms_map.get('_default_'))
+        
+        if not final_target_class_val: # If forms_map is None, or keys are not found
+            final_target_class_val = ['Unknown'] # Default to ['Unknown']
+            logger.warning(
+                f"FORMS mapping for raw class '{raw_forms_class}' or its default not found in "
+                f"RAW_TO_FINAL_TARGET_MAPPINGS['forms']. Defaulting to {final_target_class_val}."
+            )
+
+        # Ensure 'class' column stores a list for each row.
+        # final_target_class_val should be a list as per new constants.
+        if not isinstance(final_target_class_val, list):
+            logger.warning(f"Expected list for final_target_class_val from mapping, got {type(final_target_class_val)}. Converting to list: {[str(final_target_class_val)]}")
+            final_target_class_val = [str(final_target_class_val)]
             
-        gdf['class'] = final_target_class
+        gdf['class'] = [list(final_target_class_val) for _ in range(len(gdf))]
         gdf['dataset'] = 'forms'
         gdf['year'] = gdf['year'].astype(int)
     else:

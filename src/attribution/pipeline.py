@@ -30,8 +30,11 @@ def _split_classes(class_val: Any) -> List[str]:
     """Return list of class labels from a comma-separated string or iterable."""
     if class_val is None or (isinstance(class_val, float) and pd.isna(class_val)):
         return []
-    if isinstance(class_val, (list, tuple, set)):
-        return [str(c).strip() for c in class_val if str(c).strip()]
+    # Explicitly check for np.ndarray as it's a common way pandas stores list-like objects
+    if isinstance(class_val, (list, tuple, set, np.ndarray)):
+        # Ensure elements are converted to string and stripped, and filter out empty strings
+        return [str(c).strip() for c in class_val if str(c).strip()] 
+    # Fallback for comma-separated strings or other scalar types
     return [c.strip() for c in str(class_val).split(',') if c.strip()]
 
 
@@ -397,7 +400,12 @@ class Attribution:
             return cluster_base
 
         df["t"] = (df["mid_date"] - median_time).dt.days / self.params.alpha_t
-        df["cause"] = df["class"].astype("category").cat.codes
+        
+        # Convert list of classes to a canonical string representation for categorization
+        df["class_str_representation"] = df["class"].apply(
+            lambda x: ', '.join(sorted(list(x))) if isinstance(x, (list, set, np.ndarray)) and len(x) > 0 else str(x) if pd.notna(x) else 'Unknown'
+        )
+        df["cause"] = df["class_str_representation"].astype("category").cat.codes
         
         feature_cols = ["x", "y", "t", "cause"]
         X = df[feature_cols].to_numpy()
@@ -542,21 +550,19 @@ class Attribution:
         primary_group_field = "hdb_id" if "hdb_id" in self.data.columns else "community_id"
         logger.info(f"Using '{primary_group_field}' as the primary field for attribution grouping strategy.")
 
-        # Initialize probability columns for all unique disturbance classes found in the data
-
         unique_classes: set[str] = set()
         for val in self.data["class"].dropna():
             unique_classes.update(_split_classes(val))
+        if "Unknown" not in unique_classes: # Ensure Unknown is always a potential class
+            unique_classes.add("Unknown")
         for cls_name in unique_classes:
-            self.data[f"prob_{cls_name}"] = 0.0  # Initialize with 0.0
+            self.data[f"prob_{cls_name}"] = 0.0
 
-        # --- Pre-calculate base votes for all clusters ---
         hdb_cluster_votes_map: Dict[Any, Dict[str, float]] = {}
         community_cluster_votes_map: Dict[Any, Dict[str, float]] = {}
 
         if "hdb_id" in self.data.columns:
             logger.info("Pre-calculating base votes for HDBSCAN clusters (hdb_id)...")
-            # Filter out noise/NaN hdb_ids for pre-calculation
             valid_hdb_clusters = self.data[self.data["hdb_id"].notna() & (self.data["hdb_id"] != -1)]
             if not valid_hdb_clusters.empty:
                 grouped_by_hdb = valid_hdb_clusters.groupby("hdb_id")
@@ -566,8 +572,6 @@ class Attribution:
 
         if "community_id" in self.data.columns:
             logger.info("Pre-calculating base votes for Louvain communities (community_id)...")
-            # For community_id, NaN is the main indicator of no community if a node wasn't assigned.
-            # Louvain communities are typically 0-indexed if assigned.
             valid_community_clusters = self.data[self.data["community_id"].notna()]
             if not valid_community_clusters.empty:
                 grouped_by_community = valid_community_clusters.groupby("community_id")
@@ -575,7 +579,6 @@ class Attribution:
                     community_cluster_votes_map[community_id_val] = self._votes_for_cluster(group_df.index)
             logger.info(f"Base votes pre-calculated for {len(community_cluster_votes_map)} Louvain communities.")
         
-        # Filter for Senf&Seidl polygons to iterate over
         senf_indices = self.data[self.data["dataset"] == "senfseidl"].index
         
         if len(senf_indices) == 0:
@@ -583,54 +586,113 @@ class Attribution:
             return self.data
 
         logger.info(f"Starting attribution for {len(senf_indices)} Senf&Seidl events...")
+        
+        isolated_senf_count = 0
+        isolated_ambiguous_count = 0 # For Senf&Seidl events that are isolated *and* ambiguous
+        
+        # --- Community-level fallback for ambiguous classes in Senf&Seidl-only communities ---
+        # This pre-attributes Senf&Seidl events in fully ambiguous Senf&Seidl-only communities to Unknown.
+        if "community_id" in self.data.columns:
+            senf_gdf_for_community_check = self.data[(self.data["dataset"] == "senfseidl") & self.data["community_id"].notna()]
+            if not senf_gdf_for_community_check.empty:
+                comm_groups = senf_gdf_for_community_check.groupby("community_id")
+                
+                all_data_grouped_by_community = self.data[self.data["community_id"].notna()].groupby("community_id")["dataset"].apply(set)
+                senf_only_community_ids = all_data_grouped_by_community[all_data_grouped_by_community == {"senfseidl"}].index
+                
+                for comm_id, group_indices in comm_groups.groups.items():
+                    if comm_id not in senf_only_community_ids:
+                        continue
+
+                    community_is_entirely_ambiguous = True
+                    for member_idx in group_indices:
+                        class_val = self.data.loc[member_idx, "class"]
+                        if not (isinstance(class_val, (list, np.ndarray)) and len(class_val) > 1):
+                            community_is_entirely_ambiguous = False
+                            break
+                    
+                    if community_is_entirely_ambiguous:
+                        logger.debug(f"Senf&Seidl-only community {comm_id} is entirely ambiguous. Assigning all its members to Unknown.")
+                        for member_idx in group_indices:
+                            for cls in unique_classes:
+                                self.data.loc[member_idx, f"prob_{cls}"] = 0.0
+                            self.data.loc[member_idx, "prob_Unknown"] = 1.0
+
 
         for idx in tqdm(senf_indices, desc="Attributing Senf&Seidl"):
             row = self.data.loc[idx]
+            
+            if self.data.loc[idx, "prob_Unknown"] == 1.0 and all(self.data.loc[idx, f"prob_{cls}"] == 0.0 for cls in unique_classes if cls != "Unknown"):
+                logger.debug(f"Senf&Seidl event {idx} was pre-attributed to Unknown. Skipping main vote.")
+                continue
+
             current_votes: Dict[str, float] = {}
             processed_with_cluster_votes = False
 
-            # Try primary group field (hdb_id if available and "hdb_id" is the chosen primary)
-            if primary_group_field == "hdb_id" and "hdb_id" in self.data.columns:
-                hdb_id_val = row.get("hdb_id")
-                if pd.notna(hdb_id_val) and hdb_id_val != -1 and hdb_id_val in hdb_cluster_votes_map:
-                    current_votes = hdb_cluster_votes_map[hdb_id_val].copy()
-                    processed_with_cluster_votes = True
-            
-            # If not processed by hdb_id (either it was noise, NaN, or primary was community_id), 
-            # try community_id (if available).
-            if not processed_with_cluster_votes and "community_id" in self.data.columns:
+            hdb_id_val = row.get("hdb_id")
+            if pd.notna(hdb_id_val) and hdb_id_val != -1 and hdb_id_val in hdb_cluster_votes_map:
+                current_votes = hdb_cluster_votes_map[hdb_id_val].copy()
+                processed_with_cluster_votes = True
+            elif "community_id" in self.data.columns:
                 community_id_val = row.get("community_id")
-                # Ensure community_id_val is a valid key type (not NaN) and exists in the map
                 if pd.notna(community_id_val) and community_id_val in community_cluster_votes_map:
                     current_votes = community_cluster_votes_map[community_id_val].copy()
                     processed_with_cluster_votes = True
             
-            # Add the Senf&Seidl self-vote component
-            senf_event_class = row.get("class")
-            r_s = self.reliability.get("senfseidl", 0.7)  # Senf&Seidl reliability
-
-            classes = _split_classes(senf_event_class) if pd.notna(senf_event_class) else []
-            if classes:
-                per_class = (0.3 * r_s) / len(classes)
-                for c in classes:
-                    if processed_with_cluster_votes:
-                        current_votes[c] = current_votes.get(c, 0.0) + per_class
-                    else:
-                        current_votes[c] = per_class
-                if not processed_with_cluster_votes:
-                    logger.debug(
-                        f"Senf&Seidl event {idx} (class: {senf_event_class}) is isolated or in a non-voting/fallback cluster. Using self-vote component only."
-                    )
+            senf_event_class_value = row.get("class")
+            is_senf_event_ambiguous = isinstance(senf_event_class_value, (list, np.ndarray)) and len(senf_event_class_value) > 1
             
-            # Normalize votes to probabilities
+            is_isolated_from_other_datasets = not processed_with_cluster_votes
+
+            if is_isolated_from_other_datasets:
+                isolated_senf_count += 1
+                if is_senf_event_ambiguous:
+                    isolated_ambiguous_count += 1
+                    logger.debug(f"Isolated Senf&Seidl event {idx} with ambiguous class {senf_event_class_value} will be set to Unknown.")
+                    for cls_name in unique_classes:
+                        self.data.loc[idx, f"prob_{cls_name}"] = 0.0
+                    self.data.loc[idx, "prob_Unknown"] = 1.0
+                    continue
+
+            # If not isolated & ambiguous, proceed with normal voting
+            # Add the Senf&Seidl self-vote component
+            r_s = self.reliability.get("senfseidl", 0.7)
+            event_classes_list = _split_classes(senf_event_class_value) # Handles list, string, None
+
+            if event_classes_list: # If there are actual classes to vote for
+                per_class_self_vote_weight = (0.3 * r_s) / len(event_classes_list) # Senf&Seidl self-vote scaled by its reliability and number of its own classes
+                for c in event_classes_list:
+                    current_votes[c] = current_votes.get(c, 0.0) + per_class_self_vote_weight
+            elif not current_votes: # No cluster votes AND no self-vote classes (e.g. class was None or empty)
+                logger.debug(f"Senf&Seidl event {idx} has no cluster votes and no self-class. Assigning to Unknown.")
+                for cls_name in unique_classes:
+                    self.data.loc[idx, f"prob_{cls_name}"] = 0.0
+                self.data.loc[idx, "prob_Unknown"] = 1.0
+                continue
+
+
+            # Normalize votes to probabilities if any votes were cast
             total_vote_sum = sum(current_votes.values())
             if total_vote_sum > 0:
                 for cause, vote_sum in current_votes.items():
-                    if pd.notna(cause): # Ensure cause is a valid name
+                    if pd.notna(cause): 
                         self.data.loc[idx, f"prob_{cause}"] = vote_sum / total_vote_sum
-            elif pd.notna(senf_event_class) and not current_votes and not processed_with_cluster_votes : # Only self-vote was possible but resulted in 0 (e.g. r_s=0)
-                 logger.debug(f"Senf&Seidl event {idx} (class: {senf_event_class}) had zero total_vote_sum from self-vote component, possibly due to reliability or class issues.")
-
+            elif not (is_isolated_from_other_datasets and is_senf_event_ambiguous): 
+                # If it wasn't an isolated ambiguous case (already handled)
+                # and still no votes, it means it's likely an isolated non-ambiguous Senf event,
+                # or a non-isolated Senf event whose self-vote was the only component but summed to 0 (e.g. r_s=0).
+                # This also catches cases where an event had specific classes (e.g. ['Fire']) but r_s = 0, leading to no effective self-vote.
+                logger.warning(f"Senf&Seidl event {idx} (class: {senf_event_class_value}) resulted in zero total_vote_sum. Defaulting to Unknown or keeping pre-existing probabilities if any.")
+                # If no probabilities were set at all (e.g. prob_Unknown is not 1.0 from a previous rule)
+                if not any(self.data.loc[idx, f"prob_{cls_name}"] > 0 for cls_name in unique_classes):
+                    for cls_name in unique_classes: # Ensure all are zero
+                        self.data.loc[idx, f"prob_{cls_name}"] = 0.0
+                    self.data.loc[idx, "prob_Unknown"] = 1.0 # Default to Unknown
+        
+        logger.info(f"Total Senf&Seidl events processed: {len(senf_indices)}")
+        logger.info(f"Isolated Senf&Seidl events (no cluster/community votes from other datasets): {isolated_senf_count}")
+        logger.info(f"Of these isolated Senf&Seidl events, number with ambiguous classes (set to Unknown): {isolated_ambiguous_count}")
+        # Add logging for Senf&Seidl-only communities processed if available from comm_stats (needs comm_stats to be defined and populated earlier)
 
         logger.info("Attribution probabilities computed and added to the GeoDataFrame for Senf&Seidl events.")
         return self.data

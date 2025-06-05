@@ -134,23 +134,28 @@ def process_senfseidl(
         # Handle cases where a cause_value might not be in SENFSEIDL_CODE_TO_RAW_CAUSE
         unmapped_codes = final_gdf[final_gdf['raw_cause_description'].isna()]['cause_value'].unique()
         if len(unmapped_codes) > 0:
-            logger.warning(f"Unmapped Senf&Seidl cause_values found: {unmapped_codes}. These will be mapped to 'Other' raw cause, then to its corresponding final target class.")
+            logger.warning(f"Unmapped Senf&Seidl cause_values found: {unmapped_codes}. These will be mapped to 'Other' raw cause.")
             final_gdf['raw_cause_description'].fillna('Other', inplace=True) # Default unmapped codes to 'Other' raw cause
 
-        # Step 2: Map raw descriptive cause string to final target class
-        senfseidl_class_mapping = RAW_TO_FINAL_TARGET_MAPPINGS.get('senfseidl', {})
-        final_gdf['class'] = final_gdf['raw_cause_description'].map(senfseidl_class_mapping)
+        # Step 2: Map raw descriptive cause string to final target class list
+        senfseidl_class_map = RAW_TO_FINAL_TARGET_MAPPINGS.get('senfseidl', {})
+        # Define a default class list for cases where raw_cause_description is not in the map
+        default_final_class_list = ['Unknown'] 
 
-        # Handle cases where a raw_cause_description might not be in senfseidl_class_mapping
-        unmapped_raw_causes = final_gdf[final_gdf['class'].isna()]['raw_cause_description'].unique()
-        if len(unmapped_raw_causes) > 0:
-            logger.warning(f"Unmapped Senf&Seidl raw_cause_descriptions: {unmapped_raw_causes}. Mapping to 'Unknown' final target class.")
-            final_gdf['class'].fillna('Unknown', inplace=True) # Default to 'Unknown' from FINAL_TARGET_CLASSES
+        final_gdf['class'] = final_gdf['raw_cause_description'].apply(
+            lambda raw_cause: list(senfseidl_class_map.get(raw_cause, default_final_class_list))
+        )
         
-        # Ensure all classes are within the defined FINAL_TARGET_CLASSES (optional check)
-        # unknown_final_target = final_gdf[~final_gdf['class'].isin(FINAL_TARGET_CLASSES)]['class'].unique()
-        # if len(unknown_final_target) > 0:
-        #     logger.warning(f"Senf&Seidl produced classes not in FINAL_TARGET_CLASSES: {unknown_final_target}. This is unexpected.")
+        # Log if any raw_cause_descriptions were mapped to the default list
+        unique_raw_causes = final_gdf['raw_cause_description'].unique()
+        actually_unmapped_raw_causes = [
+            rc for rc in unique_raw_causes if senfseidl_class_map.get(rc, default_final_class_list) == default_final_class_list and rc not in senfseidl_class_map
+        ]
+        if actually_unmapped_raw_causes:
+            logger.warning(
+                f"The following raw_cause_descriptions from Senf&Seidl were not explicitly found in RAW_TO_FINAL_TARGET_MAPPINGS['senfseidl'] "
+                f"and were mapped to default {default_final_class_list}: {actually_unmapped_raw_causes}"
+            )
 
         final_gdf['dataset'] = 'senfseidl'
         

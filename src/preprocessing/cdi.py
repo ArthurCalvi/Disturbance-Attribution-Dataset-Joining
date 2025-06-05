@@ -86,15 +86,28 @@ def process_cdi(
         
         # Assign class using the mapping from constants
         raw_cdi_class = 'drought' # This is the implicit raw class for CDI events
-        cdi_class_mapping = RAW_TO_FINAL_TARGET_MAPPINGS.get('cdi', {})
-        final_target_class = cdi_class_mapping.get(raw_cdi_class, 'Unknown') # Default to 'Unknown'
+        cdi_map = RAW_TO_FINAL_TARGET_MAPPINGS.get('cdi')
+        final_target_class_val = None
+
+        if cdi_map:
+            # Try to get the specific mapping, fallback to _default_ within the cdi_map
+            final_target_class_val = cdi_map.get(raw_cdi_class, cdi_map.get('_default_'))
         
-        if final_target_class == 'Unknown' and raw_cdi_class in cdi_class_mapping:
-            logger.warning(f"CDI raw class '{raw_cdi_class}' mapped to 'Unknown' but was in constants. Check mapping.")
-        elif final_target_class == 'Unknown':
-            logger.warning(f"CDI raw class '{raw_cdi_class}' not found in RAW_TO_FINAL_TARGET_MAPPINGS for 'cdi'. Defaulting to 'Unknown'.")
-            
-        gdf['class'] = final_target_class
+        if not final_target_class_val: # If cdi_map is None, or keys are not found
+            final_target_class_val = ['Unknown'] # Default to ['Unknown']
+            logger.warning(
+                f"CDI mapping for raw class '{raw_cdi_class}' or its default not found in "
+                f"RAW_TO_FINAL_TARGET_MAPPINGS['cdi']. Defaulting to {final_target_class_val}."
+            )
+        
+        # Ensure 'class' column stores a list for each row.
+        # final_target_class_val should be a list as per new constants.
+        # If it's not (e.g. due to unexpected constant structure), ensure it becomes one.
+        if not isinstance(final_target_class_val, list):
+            logger.warning(f"Expected list for final_target_class_val from mapping, got {type(final_target_class_val)}. Converting to list: {[str(final_target_class_val)]}")
+            final_target_class_val = [str(final_target_class_val)]
+
+        gdf['class'] = [list(final_target_class_val) for _ in range(len(gdf))]
         gdf['dataset'] = 'cdi'
         gdf['year'] = gdf['year'].astype(int)
     else:

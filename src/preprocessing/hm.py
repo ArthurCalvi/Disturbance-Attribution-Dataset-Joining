@@ -123,23 +123,27 @@ def process_hm(
                 # We need a sub-mapping for the outputs of _get_class to our intermediate classes.
                 # This is slightly different from other datasets as _get_class already does some standardization.
                 # We will use the 'hm' mapping in constants.py, but the keys need to match _get_class outputs.
-                # For now, let's create a specific mapping here or ensure constants.py reflects these outputs.
-
-                # Option A: Define a local map for _get_class outputs if they are simple & few.
-                # Example: {'Drought-dieback': 'drought-dieback', 'Fire': 'fire', ...}
-                # Option B: Ensure RAW_TO_FINAL_TARGET_MAPPINGS['hm'] uses keys like 'Drought-dieback', 'Biotic'.
-                # For now, let's assume RAW_TO_FINAL_TARGET_MAPPINGS['hm'] has been updated or we add a local map.
-                # Let's assume for now that RAW_TO_FINAL_TARGET_MAPPINGS['hm'] can handle outputs of _get_class.
+                # For now, let's assume RAW_TO_FINAL_TARGET_MAPPINGS['hm'] can handle outputs of _get_class.
                 # This might require updating constants.py if it currently expects codes like 'CHABLIS'.
                 
-                hm_class_mapping = RAW_TO_FINAL_TARGET_MAPPINGS.get('hm', {})
-                gdf['class'] = gdf['raw_class_hm'].map(hm_class_mapping)
+                hm_class_map = RAW_TO_FINAL_TARGET_MAPPINGS.get('hm', {})
+                default_final_class_list = ['Unknown']
+
+                gdf['class'] = gdf['raw_class_hm'].apply(
+                    lambda raw_hm_class: list(hm_class_map.get(raw_hm_class, default_final_class_list))
+                )
                 
-                unmapped_raw_hm_classes = gdf[gdf['class'].isna()]['raw_class_hm'].unique()
-                if len(unmapped_raw_hm_classes) > 0:
-                    logger.warning(f"Unmapped raw_class_hm values from _get_class: {unmapped_raw_hm_classes}. Defaulting to 'Unknown' final target class.")
-                    logger.warning("Ensure RAW_TO_FINAL_TARGET_MAPPINGS['hm'] in constants.py correctly maps these values.")
-                    gdf['class'].fillna('Unknown', inplace=True) # Default to 'Unknown'
+                # Log if any raw_class_hm values were mapped to the default list
+                unique_raw_hm_classes = gdf['raw_class_hm'].unique()
+                actually_unmapped_raw_hm = [
+                    rc for rc in unique_raw_hm_classes if hm_class_map.get(rc, default_final_class_list) == default_final_class_list and rc not in hm_class_map
+                ]
+                if actually_unmapped_raw_hm:
+                    logger.warning(
+                        f"The following raw_class_hm values from _get_class were not explicitly found in RAW_TO_FINAL_TARGET_MAPPINGS['hm'] "
+                        f"and were mapped to default {default_final_class_list}: {actually_unmapped_raw_hm}. "
+                        f"Ensure _get_class outputs and their mappings in constants.py are correct."
+                    )
                 
                 gdf['essence'] = gdf[
                     'LIB_Essence regroupée (ess. concernée)'

@@ -80,7 +80,28 @@ def generate_qc_report(input_parquet_path: str, dataset_name: str):
     logging.info(f"Generating plot for {dataset_name}, saving to: {plot_filename}")
     try:
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        gdf.plot(ax=ax, aspect='equal', legend=True, categorical=('class' in gdf.columns and gdf['class'].nunique() < 20))
+        
+        plot_by_class = False
+        if 'class' in gdf.columns and not gdf['class'].empty:
+            # Create a display string for lists in 'class' column for stable hashing and display
+            # Sorting ensures that ['Biotic', 'Storm'] and ['Storm', 'Biotic'] become the same string
+            # Handling None or empty lists within the class column as well.
+            gdf['class_display'] = gdf['class'].apply(
+                lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else str(x) if x is not None else 'N/A'
+            )
+            num_unique_display_classes = gdf['class_display'].nunique()
+            
+            if 0 < num_unique_display_classes < 20:
+                plot_by_class = True
+            elif num_unique_display_classes >= 20:
+                logging.info(f"Many unique class combinations ({num_unique_display_classes}) for {dataset_name}. Plotting geometries without class-based coloring.")
+            # If num_unique_display_classes is 0 (e.g. all 'N/A' from empty lists/None), plot_by_class remains False
+
+        if plot_by_class:
+            gdf.plot(column='class_display', ax=ax, aspect='equal', legend=True, categorical=True)
+        else:
+            gdf.plot(ax=ax, aspect='equal') # Plot without specific class coloring or legend for class
+            
         ax.set_title(f"Preprocessed Polygons - {dataset_name} ({len(gdf)} features)")
         plt.tight_layout()
         plt.savefig(plot_filename)

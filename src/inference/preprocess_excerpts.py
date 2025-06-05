@@ -68,14 +68,17 @@ def main(start_year_arg: int, end_year_arg: int):
             if not processed_senfseidl_gdf.empty:
                 generate_qc_report(str(output_senfseidl_path), "senfseidl")
                 # Log class distribution
-                if 'class' in processed_senfseidl_gdf.columns:
-                    logging.info("Senf & Seidl - Final Class Distribution:")
-                    class_counts = processed_senfseidl_gdf['class'].value_counts()
+                if 'class' in processed_senfseidl_gdf.columns and not processed_senfseidl_gdf['class'].empty:
+                    logging.info("Senf & Seidl - Final Class Distribution (by unique class combinations):")
+                    class_display_series = processed_senfseidl_gdf['class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else str(x) if x is not None else 'N/A'
+                    )
+                    class_counts = class_display_series.value_counts()
                     total_records = len(processed_senfseidl_gdf)
-                    for cls, count in class_counts.items():
-                        logging.info(f"  - {cls}: {count} records ({count/total_records*100:.2f}%)")
+                    for cls_str, count in class_counts.items():
+                        logging.info(f"  - {cls_str}: {count} records ({count/total_records*100:.2f}%)")
                 else:
-                    logging.warning("'class' column not found in processed Senf & Seidl GDF for QC stats.")
+                    logging.warning("'class' column not found or empty in processed Senf & Seidl GDF for QC stats.")
         else:
             logging.warning("Skipping Senf & Seidl preprocessing due to missing input files.")
 
@@ -112,14 +115,17 @@ def main(start_year_arg: int, end_year_arg: int):
             if not processed_hm_gdf.empty:
                 generate_qc_report(str(output_hm_path), "hm")
                 # Log class distribution
-                if 'class' in processed_hm_gdf.columns:
-                    logging.info("Health Monitoring - Final Class Distribution:")
-                    class_counts = processed_hm_gdf['class'].value_counts()
+                if 'class' in processed_hm_gdf.columns and not processed_hm_gdf['class'].empty:
+                    logging.info("Health Monitoring - Final Class Distribution (by unique class combinations):")
+                    class_display_series = processed_hm_gdf['class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else str(x) if x is not None else 'N/A'
+                    )
+                    class_counts = class_display_series.value_counts()
                     total_records = len(processed_hm_gdf)
-                    for cls, count in class_counts.items():
-                        logging.info(f"  - {cls}: {count} records ({count/total_records*100:.2f}%)")
+                    for cls_str, count in class_counts.items():
+                        logging.info(f"  - {cls_str}: {count} records ({count/total_records*100:.2f}%)")
                 else:
-                    logging.warning("'class' column not found in processed HM GDF for QC stats.")
+                    logging.warning("'class' column not found or empty in processed HM GDF for QC stats.")
         else:
             logging.warning(f"Skipping Health Monitoring preprocessing, input file not found: {hm_input_path}")
 
@@ -154,14 +160,17 @@ def main(start_year_arg: int, end_year_arg: int):
             if not processed_firepolygons_gdf.empty:
                 generate_qc_report(str(output_firepolygons_path), "firepolygons")
                 # Log class distribution
-                if 'class' in processed_firepolygons_gdf.columns:
-                    logging.info("Fire Polygons - Final Class Distribution:")
-                    class_counts = processed_firepolygons_gdf['class'].value_counts()
+                if 'class' in processed_firepolygons_gdf.columns and not processed_firepolygons_gdf['class'].empty:
+                    logging.info("Fire Polygons - Final Class Distribution (by unique class combinations):")
+                    class_display_series = processed_firepolygons_gdf['class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else str(x) if x is not None else 'N/A'
+                    )
+                    class_counts = class_display_series.value_counts()
                     total_records = len(processed_firepolygons_gdf)
-                    for cls, count in class_counts.items():
-                        logging.info(f"  - {cls}: {count} records ({count/total_records*100:.2f}%)")
+                    for cls_str, count in class_counts.items():
+                        logging.info(f"  - {cls_str}: {count} records ({count/total_records*100:.2f}%)")
                 else:
-                    logging.warning("'class' column not found in processed Fire Polygons GDF for QC stats.")
+                    logging.warning("'class' column not found or empty in processed Fire Polygons GDF for QC stats.")
         else:
             logging.warning(f"Skipping Fire Polygons preprocessing due to missing inputs.")
 
@@ -192,14 +201,17 @@ def main(start_year_arg: int, end_year_arg: int):
             if not processed_cdi_gdf.empty:
                 generate_qc_report(str(output_cdi_path), "cdi")
                 # Log class distribution
-                if 'class' in processed_cdi_gdf.columns:
-                    logging.info("CDI - Final Class Distribution:")
-                    class_counts = processed_cdi_gdf['class'].value_counts()
+                if 'class' in processed_cdi_gdf.columns and not processed_cdi_gdf['class'].empty:
+                    logging.info("CDI - Final Class Distribution (by unique class combinations):")
+                    class_display_series = processed_cdi_gdf['class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else str(x) if x is not None else 'N/A'
+                    )
+                    class_counts = class_display_series.value_counts()
                     total_records = len(processed_cdi_gdf)
-                    for cls, count in class_counts.items():
-                        logging.info(f"  - {cls}: {count} records ({count/total_records*100:.2f}%)")
+                    for cls_str, count in class_counts.items():
+                        logging.info(f"  - {cls_str}: {count} records ({count/total_records*100:.2f}%)")
                 else:
-                    logging.warning("'class' column not found in processed CDI GDF for QC stats.")
+                    logging.warning("'class' column not found or empty in processed CDI GDF for QC stats.")
         else:
             logging.warning(f"Skipping CDI preprocessing, input directory not found or empty: {cdi_rasters_dir}")
 
@@ -255,14 +267,17 @@ def main(start_year_arg: int, end_year_arg: int):
             if not processed_forms_gdf.empty:
                 generate_qc_report(str(output_forms_path), "forms")
                 # Log class distribution
-                if 'class' in processed_forms_gdf.columns:
-                    logging.info("FORMS - Final Class Distribution:")
-                    class_counts = processed_forms_gdf['class'].value_counts()
+                if 'class' in processed_forms_gdf.columns and not processed_forms_gdf['class'].empty:
+                    logging.info("FORMS - Final Class Distribution (by unique class combinations):")
+                    class_display_series = processed_forms_gdf['class'].apply(
+                        lambda x: ', '.join(sorted(x)) if isinstance(x, list) and x else str(x) if x is not None else 'N/A'
+                    )
+                    class_counts = class_display_series.value_counts()
                     total_records = len(processed_forms_gdf)
-                    for cls, count in class_counts.items():
-                        logging.info(f"  - {cls}: {count} records ({count/total_records*100:.2f}%)")
+                    for cls_str, count in class_counts.items():
+                        logging.info(f"  - {cls_str}: {count} records ({count/total_records*100:.2f}%)")
                 else:
-                    logging.warning("'class' column not found in processed FORMS GDF for QC stats.")
+                    logging.warning("'class' column not found or empty in processed FORMS GDF for QC stats.")
         else:
             logging.warning(f"Skipping FORMS preprocessing, not enough rasters found for difference calculation (need at least 2). Found: {len(forms_raster_paths)}")
 
