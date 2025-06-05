@@ -44,11 +44,10 @@ def process_firepolygons(
         if not uid_polygons:
             logger.warning("No valid polygons found in the GPKG directory. Returning empty GeoDataFrame.")
             final_columns = [
-                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
                 'forest_area_m2', 'essence', 'name', 'geometry'
             ]
-            empty_schema_cols = ['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry']
-            gdf_final = gpd.GeoDataFrame(columns=empty_schema_cols, geometry='geometry', crs='EPSG:2154')
+            gdf_final = gpd.GeoDataFrame(columns=final_columns, geometry='geometry', crs='EPSG:2154')
             if output_file:
                 gdf_final.to_parquet(output_file)
             return gdf_final
@@ -56,13 +55,21 @@ def process_firepolygons(
         gdf_poly_all = gpd.GeoDataFrame(pd.concat(uid_polygons, ignore_index=True), geometry='geometry', crs='EPSG:2154')
         if 'UID' not in gdf_poly_all.columns:
             logger.error("Concatenated GPKG files do not contain 'UID' column. Cannot merge with attributes.")
-            return gpd.GeoDataFrame(columns=['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry'], geometry='geometry', crs='EPSG:2154')
+            final_cols = [
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
+                'forest_area_m2', 'essence', 'name', 'geometry'
+            ]
+            return gpd.GeoDataFrame(columns=final_cols, geometry='geometry', crs='EPSG:2154')
 
         if 'UID' in df.columns:
             df['UID'] = df['UID'].astype(gdf_poly_all['UID'].dtype)
         else:
             logger.error("CSV file does not contain 'UID' column. Cannot merge with geometries.")
-            return gpd.GeoDataFrame(columns=['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry'], geometry='geometry', crs='EPSG:2154')
+            final_cols = [
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
+                'forest_area_m2', 'essence', 'name', 'geometry'
+            ]
+            return gpd.GeoDataFrame(columns=final_cols, geometry='geometry', crs='EPSG:2154')
 
         df_attributes_filtered = df[df['UID'].isin(gdf_poly_all['UID'])].copy()
 
@@ -72,7 +79,11 @@ def process_firepolygons(
 
         if gdf_merged.empty:
             logger.warning("No matching records found after merging polygons and attributes.")
-            return gpd.GeoDataFrame(columns=['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry'], geometry='geometry', crs='EPSG:2154')
+            final_cols = [
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
+                'forest_area_m2', 'essence', 'name', 'geometry'
+            ]
+            return gpd.GeoDataFrame(columns=final_cols, geometry='geometry', crs='EPSG:2154')
 
         gdf_merged.rename(
             columns={
@@ -102,7 +113,11 @@ def process_firepolygons(
 
         if gdf_merged.empty or 'start_date' not in gdf_merged.columns or gdf_merged['start_date'].isnull().all():
             logger.warning("No valid records after date conversion or 'start_date_str' was missing. Returning empty GeoDataFrame.")
-            return gpd.GeoDataFrame(columns=['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry'], geometry='geometry', crs='EPSG:2154')
+            final_cols = [
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
+                'forest_area_m2', 'essence', 'name', 'geometry'
+            ]
+            return gpd.GeoDataFrame(columns=final_cols, geometry='geometry', crs='EPSG:2154')
 
         if 'year' in gdf_merged.columns:
             gdf_merged['year'] = gdf_merged['year'].astype(int)
@@ -117,7 +132,11 @@ def process_firepolygons(
 
         if gdf_merged.empty:
             logger.info("GeoDataFrame is empty after year filtering.")
-            return gpd.GeoDataFrame(columns=['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry'], geometry='geometry', crs='EPSG:2154')
+            final_cols = [
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
+                'forest_area_m2', 'essence', 'name', 'geometry'
+            ]
+            return gpd.GeoDataFrame(columns=final_cols, geometry='geometry', crs='EPSG:2154')
 
         # Ensure required columns for UUID are present and are strings
         # Use 'start_date' (datetime) for UUID creation if 'start_date_str' led to NaT or was missing for some records
@@ -162,13 +181,23 @@ def process_firepolygons(
             'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
             'forest_area_m2', 'essence', 'name', 'geometry'
         ]
-        gdf_final = gdf_merged[[col for col in final_columns_ordered if col in gdf_merged.columns]]
+        for col in final_columns_ordered:
+            if col not in gdf_merged.columns:
+                gdf_merged[col] = pd.NA
+        gdf_final = gdf_merged.reindex(columns=final_columns_ordered)
 
         logger.info(f"Fire Polygons processing complete. Generated {len(gdf_final)} records.")
 
     except Exception as e:
         logger.error(f"Error during Fire Polygons preprocessing: {e}", exc_info=True)
-        gdf_final = gpd.GeoDataFrame(columns=['uuid', 'year', 'start_date', 'end_date', 'class', 'dataset', 'geometry'], geometry='geometry', crs='EPSG:2154')
+        gdf_final = gpd.GeoDataFrame(
+            columns=[
+                'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
+                'forest_area_m2', 'essence', 'name', 'geometry'
+            ],
+            geometry='geometry',
+            crs='EPSG:2154'
+        )
 
     if output_file:
         logger.info(f"Saving Fire Polygons processed data to {output_file}")
