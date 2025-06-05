@@ -26,11 +26,14 @@ except Exception as exc:  # pragma: no cover - ensure clear error message
 logger = logging.getLogger(__name__)
 
 
-def _split_classes(class_str: str) -> List[str]:
-    """Return list of class labels from a comma separated string."""
-    if not class_str:
+def _split_classes(class_val: Any) -> List[str]:
+    """Return list of class labels from a comma-separated string or iterable."""
+    if class_val is None or (isinstance(class_val, float) and pd.isna(class_val)):
         return []
-    return [c.strip() for c in str(class_str).split(',') if c.strip()]
+    if isinstance(class_val, (list, tuple, set)):
+        return [str(c).strip() for c in class_val if str(c).strip()]
+    return [c.strip() for c in str(class_val).split(',') if c.strip()]
+
 
 @dataclass
 class AttributionParams:
@@ -540,9 +543,9 @@ class Attribution:
         logger.info(f"Using '{primary_group_field}' as the primary field for attribution grouping strategy.")
 
         # Initialize probability columns for all unique disturbance classes found in the data
-        all_class_strings = [c for c in self.data["class"].unique() if pd.notna(c)]
+
         unique_classes: set[str] = set()
-        for val in all_class_strings:
+        for val in self.data["class"].dropna():
             unique_classes.update(_split_classes(val))
         for cls_name in unique_classes:
             self.data[f"prob_{cls_name}"] = 0.0  # Initialize with 0.0
