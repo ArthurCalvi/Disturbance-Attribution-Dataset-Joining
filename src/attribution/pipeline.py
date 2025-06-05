@@ -34,6 +34,7 @@ def _split_classes(class_val: Any) -> List[str]:
         return [str(c).strip() for c in class_val if str(c).strip()]
     return [c.strip() for c in str(class_val).split(',') if c.strip()]
 
+
 @dataclass
 class AttributionParams:
     """Parameters controlling the attribution pipeline."""
@@ -542,6 +543,7 @@ class Attribution:
         logger.info(f"Using '{primary_group_field}' as the primary field for attribution grouping strategy.")
 
         # Initialize probability columns for all unique disturbance classes found in the data
+
         unique_classes: set[str] = set()
         for val in self.data["class"].dropna():
             unique_classes.update(_split_classes(val))
