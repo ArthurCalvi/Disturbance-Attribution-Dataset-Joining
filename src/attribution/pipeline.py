@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-
-
 from dataclasses import dataclass, field
 
 from typing import Dict, Iterable, List, Tuple, Optional, Any
@@ -26,6 +24,13 @@ except Exception as exc:  # pragma: no cover - ensure clear error message
     ) from exc
 
 logger = logging.getLogger(__name__)
+
+
+def _split_classes(class_str: str) -> List[str]:
+    """Return list of class labels from a comma separated string."""
+    if not class_str:
+        return []
+    return [c.strip() for c in str(class_str).split(',') if c.strip()]
 
 @dataclass
 class AttributionParams:
@@ -512,11 +517,16 @@ class Attribution:
         for idx in members:
             row = self.data.loc[idx]
             # Ensure 'class' and 'dataset' columns exist for the row
-            cls = row.get("class", "unknown_class") # Default if 'class' is missing
-            dataset_name = row.get("dataset", "unknown_dataset") # Default if 'dataset' is missing
-            
-            w = self.reliability.get(dataset_name, 0.5) # Use reliability of the member's dataset
-            votes[cls] = votes.get(cls, 0.0) + w
+            class_value = row.get("class", "Unknown")
+            dataset_name = row.get("dataset", "unknown_dataset")
+
+            w = self.reliability.get(dataset_name, 0.5)
+            classes = _split_classes(class_value)
+            if not classes:
+                classes = ["Unknown"]
+            per_class_weight = w / len(classes)
+            for c in classes:
+                votes[c] = votes.get(c, 0.0) + per_class_weight
         return votes
 
     def attribute(self) -> gpd.GeoDataFrame: # Changed return type
@@ -530,8 +540,11 @@ class Attribution:
         logger.info(f"Using '{primary_group_field}' as the primary field for attribution grouping strategy.")
 
         # Initialize probability columns for all unique disturbance classes found in the data
-        all_disturbance_classes = [cls for cls in self.data["class"].unique() if pd.notna(cls)]
-        for cls_name in all_disturbance_classes:
+        all_class_strings = [c for c in self.data["class"].unique() if pd.notna(c)]
+        unique_classes: set[str] = set()
+        for val in all_class_strings:
+            unique_classes.update(_split_classes(val))
+        for cls_name in unique_classes:
             self.data[f"prob_{cls_name}"] = 0.0  # Initialize with 0.0
 
         # --- Pre-calculate base votes for all clusters ---
@@ -591,14 +604,20 @@ class Attribution:
             
             # Add the Senf&Seidl self-vote component
             senf_event_class = row.get("class")
-            r_s = self.reliability.get("senfseidl", 0.7) # Senf&Seidl reliability
+            r_s = self.reliability.get("senfseidl", 0.7)  # Senf&Seidl reliability
 
-            if pd.notna(senf_event_class):
-                if processed_with_cluster_votes: # Base votes from cluster are in current_votes
-                    current_votes[senf_event_class] = current_votes.get(senf_event_class, 0.0) + (0.3 * r_s)
-                else: # No base votes from cluster (isolated/noise), so self-vote is the only component
-                    current_votes[senf_event_class] = (0.3 * r_s)
-                    logger.debug(f"Senf&Seidl event {idx} (class: {senf_event_class}) is isolated or in a non-voting/fallback cluster. Using self-vote component only for its class.")
+            classes = _split_classes(senf_event_class) if pd.notna(senf_event_class) else []
+            if classes:
+                per_class = (0.3 * r_s) / len(classes)
+                for c in classes:
+                    if processed_with_cluster_votes:
+                        current_votes[c] = current_votes.get(c, 0.0) + per_class
+                    else:
+                        current_votes[c] = per_class
+                if not processed_with_cluster_votes:
+                    logger.debug(
+                        f"Senf&Seidl event {idx} (class: {senf_event_class}) is isolated or in a non-voting/fallback cluster. Using self-vote component only."
+                    )
             
             # Normalize votes to probabilities
             total_vote_sum = sum(current_votes.values())
