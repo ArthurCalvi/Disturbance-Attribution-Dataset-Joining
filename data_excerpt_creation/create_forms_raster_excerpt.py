@@ -9,6 +9,16 @@ import numpy as np
 import math # For sqrt
 import tempfile # Added for temporary directory
 import shutil # Added for removing temporary directory
+import argparse
+import sys
+
+# Add src to sys.path to allow for imports from src
+script_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.abspath(os.path.join(script_dir, '..', 'src'))
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
+from config.constants import EXCERPT_BOUNDING_BOXES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -16,8 +26,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- Constants ---
 # Path to the FORMS GeoTIFF files - now a list
 FORMS_RASTER_FILE_PATHS = [
-    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2023.tif',
-    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2022.tif',
+    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2021.tif',
+    '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2020.tif',
     '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2019.tif',
     '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2018.tif',
 ]
@@ -31,7 +41,7 @@ BBOX_CRS_EPSG2154 = "EPSG:2154"
 EXPECTED_RASTER_CRS = "EPSG:2154" # Assuming L93 implies EPSG:2154, verify with file if possible.
 
 # Output directory relative to this script's location
-OUTPUT_RASTER_DIR_RELATIVE = "../excerpts/raw/"
+OUTPUT_RASTER_DIR_RELATIVE = "../excerpts/raw/forms"
 # OUTPUT_RASTER_FILENAME_PREFIX = "excerpt_forms_height_mavg_2023" # Will be generated dynamically
 
 # File size limits (MB)
@@ -426,16 +436,108 @@ def create_forms_raster_excerpts_synced_bbox():
     logging.info("--- FORMS raster excerpt creation process finished. ---")
 
 
-if __name__ == "__main__":
-    # Ensure you have added the path to the 2022 file in FORMS_RASTER_FILE_PATHS
-    # e.g. FORMS_RASTER_FILE_PATHS.append('/path/to/your/Height_mavg_2022.tif')
-    if len(FORMS_RASTER_FILE_PATHS) < 2 : # Basic check
-        logging.warning("FORMS_RASTER_FILE_PATHS contains fewer than 2 files. "
-                        "Please add the path to the 2022 (and any other) FORMS files.")
-        # Example of how to add another file if needed for testing:
-        # if '/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2023.tif' in FORMS_RASTER_FILE_PATHS and \
-        #    not any('2022' in f for f in FORMS_RASTER_FILE_PATHS):
-        #     logging.info("Adding a placeholder for a 2022 file for demonstration if not present. Replace with actual path.")
-        #     # FORMS_RASTER_FILE_PATHS.append('/Users/arthurcalvi/Data/Disturbances_maps/FORMS/Height_mavg_2022.tif') # Replace this
+def create_raster_excerpt(
+    src_path,
+    output_path,
+    bbox_geom,
+    bbox_crs
+):
+    """
+    Manages the process of creating a single raster excerpt.
+    It handles CRS transformation for the BBOX and calls the cropping function.
+    """
+    logging.info(f"--- Processing raster: {src_path} ---")
+
+    try:
+        source_profile, source_crs, source_dtype, source_nodata_val = _get_raster_info(src_path)
+
+        # Transform BBOX to source raster's CRS if they don't match
+        if source_crs != bbox_crs:
+            logging.info(f"Reprojecting BBOX from {bbox_crs} to {source_crs} for raster {src_path}")
+            bbox_gdf = gpd.GeoDataFrame([{'geometry': bbox_geom}], crs=bbox_crs)
+            bbox_geom_in_src_crs = bbox_gdf.to_crs(source_crs).iloc[0].geometry
+        else:
+            bbox_geom_in_src_crs = bbox_geom
+
+        logging.info(f"Creating excerpt for {src_path}")
+        _crop_and_write_raster(
+            src_path,
+            output_path,
+            bbox_geom_in_src_crs,
+            source_profile,
+            source_nodata_val,
+            OUTPUT_DTYPE,
+            DEFAULT_NODATA_VALUE_FOR_OUTPUT_DTYPE
+        )
+        logging.info(f"Successfully created excerpt: {output_path}")
+        return True
+
+    except Exception as e:
+        logging.error(f"Failed to process {src_path}: {e}", exc_info=True)
+        return False
+
+def main(bbox_name):
+    """
+    Main function to create FORMS raster excerpts for a given bounding box.
+    """
+    logging.debug("Starting FORMS raster excerpt creation process...")
+    logging.debug(f"Using bounding box: '{bbox_name}'")
+
+    # Get BBOX details from constants
+    selected_bbox = EXCERPT_BOUNDING_BOXES[bbox_name]
+    bbox_coords = selected_bbox['coords']
+    bbox_crs = selected_bbox['crs']
     
-    create_forms_raster_excerpts_synced_bbox() 
+    bbox_geometry = box(*bbox_coords)
+
+    # Resolve output directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir_abs = os.path.abspath(os.path.join(script_dir, OUTPUT_RASTER_DIR_RELATIVE))
+    os.makedirs(output_dir_abs, exist_ok=True)
+    logging.debug(f"Output directory for excerpts: {output_dir_abs}")
+
+    # Sanitize bbox_name for the filename
+    bbox_name_fs = bbox_name.replace(' ', '_')
+    
+    processed_files = 0
+    failed_files = 0
+    skipped_files = 0
+
+    if not FORMS_RASTER_FILE_PATHS:
+        logging.warning("No FORMS raster files specified in FORMS_RASTER_FILE_PATHS. Exiting.")
+        return
+
+    for filename in os.listdir(FORMS_RASTER_DIR_PATH):
+        if filename.lower().endswith(('.tif', '.tiff')):
+            input_raster_path = os.path.join(FORMS_RASTER_DIR_PATH, filename)
+            output_raster_name = f"excerpt_{bbox_name_fs}_{filename}"
+            output_raster_path = os.path.join(abs_output_dir, output_raster_name)
+            
+            if os.path.exists(output_raster_path):
+                logging.debug(f"Output file already exists, skipping: {output_raster_path}")
+                continue
+
+            if create_raster_excerpt(input_raster_path, output_raster_path, bbox_geometry, bbox_crs):
+                processed_files += 1
+            else:
+                failed_files += 1
+
+    logging.info("--- Summary ---")
+    logging.info(f"Total rasters processed: {len(FORMS_RASTER_FILE_PATHS)}")
+    logging.info(f"Successfully created excerpts: {processed_files}")
+    logging.info(f"Failed/skipped excerpts: {failed_files}")
+    logging.debug("FORMS raster excerpt creation process finished.")
+
+# --- Main Script ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create raster excerpts for FORMS data based on a named bounding box.")
+    parser.add_argument(
+        '--bbox-name',
+        type=str,
+        default='les landes',
+        choices=EXCERPT_BOUNDING_BOXES.keys(),
+        help=f"The name of the bounding box to use for the excerpt, defined in src/config/constants.py. "
+             f"Choices: {list(EXCERPT_BOUNDING_BOXES.keys())}"
+    )
+    args = parser.parse_args()
+    main(args.bbox_name) 

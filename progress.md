@@ -1,5 +1,29 @@
 # Project Progress
 
+This file tracks the major steps and changes made to the repository.
+
+## 2024-07-25
+
+- **Refactor data excerpt creation scripts:**
+    - Centralized bounding box definitions in `src/config/constants.py` under `EXCERPT_BOUNDING_BOXES`.
+    - Added a 'default' and a 'vosges' bounding box.
+    - This will allow for easier management and selection of areas of interest for data excerpting.
+- **Refactor data excerpt creation scripts (`data_excerpt_creation/`):**
+    - Modified all scripts to accept a `--bbox-name` command-line argument to select a bounding box from `constants.py`.
+    - Removed all hardcoded bounding boxes from the scripts.
+    - Removed all logic related to file size checking, warnings, and automated reduction of the bounding box or data sampling. The scripts will now create excerpts of any size based on the chosen bounding box.
+    - Updated output filenames to include the name of the bounding box used (e.g., `excerpt_default_...`).
+    - Standardized output directories for raster excerpts into their own subfolders within `excerpts/raw/`.
+- **Created a master script for orchestration:**
+    - Added `data_excerpt_creation/create_all_excerpts.py` to run all individual excerpt creation processes from a single command.
+    - This script takes a `--bbox-name` argument to pass to all sub-scripts.
+    - Refactored all individual excerpt scripts to make them importable and callable from this master script.
+- **Improved Logging Output:**
+    - Modified the master script to time each major excerpting step and log the duration.
+    - Added a `--verbose` flag to the master script to control log output.
+    - Demoted verbose, step-by-step logs in all individual scripts from `INFO` to `DEBUG` level.
+    - The default output is now a clean, high-level summary, with detailed logs available via the `--verbose` flag.
+
 ## Summary
 
 - Created raw data excerpts to facilitate testing.

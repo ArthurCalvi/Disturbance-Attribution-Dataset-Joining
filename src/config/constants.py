@@ -73,3 +73,16 @@ DISTURBANCE_CLASS_COLORS = {
     'Drought,Unknown': '#6a3d9a',  # Drought dominant
     'Anthropogenic,Unknown': '#ff7f00', # Anthropogenic dominant
 } 
+
+# 4. Bounding Boxes for Data Excerpts
+# Centralized definition of bounding boxes for creating data excerpts.
+# EPSG:2154 (RGF93 / Lambert-93) is the standard CRS for these bounding boxes.
+EXCERPT_BOUNDING_BOXES = {
+    'les landes': {
+        'coords': (307783.0822, 6340505.4366, 469246.8845, 6419190.9011),
+        'crs': 'EPSG:2154',
+        'description': 'Default bounding box covering a large area of interest.'
+    },
+
+    # Add other named bounding boxes here as needed
+} 

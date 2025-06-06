@@ -6,15 +6,21 @@ from rasterio.crs import CRS as RasterioCRS # Renamed to avoid conflict
 from shapely.geometry import box
 import geopandas as gpd
 import numpy as np
+import argparse
+import sys
+
+# Add src to sys.path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.abspath(os.path.join(script_dir, '..', 'src'))
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
+from config.constants import EXCERPT_BOUNDING_BOXES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Constants ---
-# BBOX coordinates (minx, miny, maxx, maxy) from create_data_excerpts.py
-BBOX_COORDS_EPSG2154 = (307783.0822, 6340505.4366, 469246.8845, 6419190.9011)
-BBOX_CRS_EPSG2154 = "EPSG:2154"
-
 # Relative paths from the script's location (data_excerpt_creation/)
 # to the raw raster files.
 RAW_RASTER_FILES = [
@@ -35,16 +41,13 @@ RAW_RASTER_FILES = [
 ]
 
 # Output directory for the raster excerpts, relative to this script's location.
-OUTPUT_DIR_RASTERS = "../excerpts/raw/"
+OUTPUT_DIR_RASTERS = "../excerpts/raw/senfseidl"
 
-# Maximum file size in MB before issuing warnings
-MAX_SIZE_MB_WARN = 5.0
-MAX_SIZE_MB_CRITICAL = 10.0
 TIFF_COMPRESSION = "LZW" # Added compression
 
 # --- Helper Functions ---
 
-def crop_and_save_raster(raster_path_info, output_dir_relative, bbox_coords, bbox_crs_str):
+def crop_and_save_raster(raster_path_info, output_dir_relative, bbox_coords, bbox_crs_str, bbox_name):
     """
     Crops a raster to the given bounding box and saves it.
     The bounding box is reprojected to the raster's native CRS before cropping.
@@ -62,16 +65,16 @@ def crop_and_save_raster(raster_path_info, output_dir_relative, bbox_coords, bbo
         logging.error(f"Input raster file not found: {abs_input_raster_path}. Skipping {dataset_name}.")
         return False
 
-    output_filename = f"excerpt_{os.path.basename(input_raster_path_relative)}"
+    output_filename = f"excerpt_{bbox_name}_{os.path.basename(input_raster_path_relative)}"
     abs_output_raster_path = os.path.abspath(os.path.join(script_dir, output_dir_relative, output_filename))
     os.makedirs(os.path.dirname(abs_output_raster_path), exist_ok=True)
 
-    logging.info(f"Processing {dataset_name}: {abs_input_raster_path}")
+    logging.debug(f"Processing {dataset_name}: {abs_input_raster_path}")
 
     try:
         with rasterio.open(abs_input_raster_path) as src:
             raster_crs = src.crs
-            logging.info(f"Source raster CRS for {dataset_name}: {raster_crs}, Data type: {src.dtypes[0]}")
+            logging.debug(f"Source raster CRS for {dataset_name}: {raster_crs}, Data type: {src.dtypes[0]}")
 
             if not raster_crs:
                 if expected_crs_if_missing_str:
@@ -84,7 +87,7 @@ def crop_and_save_raster(raster_path_info, output_dir_relative, bbox_coords, bbo
             shapely_bbox = box(*bbox_coords)
             bbox_gdf = gpd.GeoDataFrame([{'id': 1, 'geometry': shapely_bbox}], crs=bbox_crs_str)
 
-            logging.info(f"Reprojecting BBOX from {bbox_crs_str} to {raster_crs} for {dataset_name}.")
+            logging.debug(f"Reprojecting BBOX from {bbox_crs_str} to {raster_crs} for {dataset_name}.")
             try:
                 bbox_gdf_reprojected = bbox_gdf.to_crs(raster_crs)
             except Exception as e:
@@ -106,7 +109,7 @@ def crop_and_save_raster(raster_path_info, output_dir_relative, bbox_coords, bbo
             
             # Change data type if needed
             if src.dtypes[0] != output_dtype_str:
-                logging.info(f"Converting data type from {src.dtypes[0]} to {output_dtype_str} for {dataset_name}.")
+                logging.debug(f"Converting data type from {src.dtypes[0]} to {output_dtype_str} for {dataset_name}.")
                 # Handle potential NaN conversion if original is float and target is int
                 if np.issubdtype(src.dtypes[0], np.floating) and np.issubdtype(np.dtype(output_dtype_str), np.integer):
                     # Replace NaNs with the integer nodata value before casting
@@ -126,51 +129,61 @@ def crop_and_save_raster(raster_path_info, output_dir_relative, bbox_coords, bbo
             })
             out_meta['count'] = out_image.shape[0]
 
-            logging.info(f"Saving cropped raster for {dataset_name} to {abs_output_raster_path} with {TIFF_COMPRESSION} compression and dtype {output_dtype_str}.")
+            logging.debug(f"Saving cropped raster for {dataset_name} to {abs_output_raster_path} with {TIFF_COMPRESSION} compression and dtype {output_dtype_str}.")
             with rasterio.open(abs_output_raster_path, "w", **out_meta) as dest:
                 dest.write(out_image)
             
-            logging.info(f"Successfully created excerpt: {abs_output_raster_path}")
+            file_size_mb = os.path.getsize(abs_output_raster_path) / (1024 * 1024)
+            logging.info(f"Successfully created excerpt: {os.path.basename(abs_output_raster_path)}, size {file_size_mb:.2f} MB")
 
-            file_size_bytes = os.path.getsize(abs_output_raster_path)
-            file_size_mb = file_size_bytes / (1024 * 1024)
-            logging.info(f"Excerpt size for {dataset_name}: {file_size_mb:.2f} MB")
-
-            if file_size_mb > MAX_SIZE_MB_CRITICAL:
-                logging.critical(
-                    f"Excerpt {abs_output_raster_path} ({file_size_mb:.2f} MB) is larger than {MAX_SIZE_MB_CRITICAL}MB. "
-                    "Consider different compression or resolution reduction if still too large."
-                )
-            elif file_size_mb > MAX_SIZE_MB_WARN:
-                logging.warning(
-                    f"Excerpt {abs_output_raster_path} ({file_size_mb:.2f} MB) is larger than {MAX_SIZE_MB_WARN}MB. "
-                )
             return True
 
     except Exception as e:
         logging.error(f"Error processing raster {dataset_name} ({abs_input_raster_path}): {e}", exc_info=True)
         return False
 
-# --- Main Script ---
-if __name__ == "__main__":
-    logging.info("Starting raw raster excerpt creation process with compression and dtype optimization...")
+def main(bbox_name):
+    """
+    Main function to create Senf & Seidl raster excerpts.
+    """
+    logging.debug(f"Starting SenfSeidl raw raster excerpt creation using bbox: '{bbox_name}'...")
+    
+    selected_bbox = EXCERPT_BOUNDING_BOXES[bbox_name]
+    bbox_coords = selected_bbox['coords']
+    bbox_crs = selected_bbox['crs']
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     abs_output_dir = os.path.abspath(os.path.join(script_dir, OUTPUT_DIR_RASTERS))
     os.makedirs(abs_output_dir, exist_ok=True)
-    logging.info(f"Output directory for raster excerpts: {abs_output_dir}")
+    logging.debug(f"Output directory for raster excerpts: {abs_output_dir}")
 
-    success_count = 0
-    fail_count = 0
+    # Sanitize bbox_name for the filename
+    bbox_name_fs = bbox_name.replace(' ', '_')
 
+    processed_files = 0
+    failed_files = 0
     for raster_info in RAW_RASTER_FILES:
-        if crop_and_save_raster(raster_info, OUTPUT_DIR_RASTERS, BBOX_COORDS_EPSG2154, BBOX_CRS_EPSG2154):
-            success_count += 1
+        if crop_and_save_raster(raster_info, OUTPUT_DIR_RASTERS, bbox_coords, bbox_crs, bbox_name_fs):
+            processed_files += 1
         else:
-            fail_count += 1
+            failed_files += 1
     
     logging.info("--- Summary ---")
     logging.info(f"Total raw raster files processed: {len(RAW_RASTER_FILES)}")
-    logging.info(f"Successfully created excerpts: {success_count}")
-    logging.info(f"Failed/skipped excerpts: {fail_count}")
-    logging.info("Raw raster excerpt creation process finished.") 
+    logging.info(f"Successfully created excerpts: {processed_files}")
+    logging.info(f"Failed/skipped excerpts: {failed_files}")
+    logging.debug("Raw raster excerpt creation process finished.")
+
+# --- Main Script ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create raster excerpts for Senf & Seidl data.")
+    parser.add_argument(
+        '--bbox-name',
+        type=str,
+        default='les landes',
+        choices=EXCERPT_BOUNDING_BOXES.keys(),
+        help=f"The name of the bounding box to use. Defined in src/config/constants.py. "
+             f"Choices: {list(EXCERPT_BOUNDING_BOXES.keys())}"
+    )
+    args = parser.parse_args()
+    main(args.bbox_name) 

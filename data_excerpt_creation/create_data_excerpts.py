@@ -3,17 +3,23 @@ from shapely.geometry import box
 import os
 import logging
 import sys
+import argparse
+import importlib.util
+
+# Add src to sys.path to allow for imports from src
+# Assuming the script is in data_excerpt_creation, and src is a sibling directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.abspath(os.path.join(script_dir, '..', 'src'))
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
+from config.constants import EXCERPT_BOUNDING_BOXES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Constants ---
-# BBOX coordinates (minx, miny, maxx, maxy) in EPSG:2154
-BBOX_COORDS = (307783.0822, 6340505.4366, 469246.8845, 6419190.9011)
-TARGET_CRS = "EPSG:2154"
-
 # Path to the constants.py file to get dataset paths
-# Assuming this script is in data_excerpt_creation and constants.py is in join-datasets
 # Adjust the path if your directory structure is different
 CONSTANTS_FILE_PATH = "../join-datasets/constants.py" 
 OUTPUT_DIR_RELATIVE_TO_CONSTANTS = "../excerpts/" # Relative to the constants.py file's directory
@@ -78,7 +84,7 @@ def load_loading_dict_from_file(file_path):
         logging.error(f"Error loading loading_dict from {file_path}: {e}")
         return None
 
-def create_excerpt(gdf, bbox_geom, output_path):
+def create_excerpt(gdf, bbox_geom, output_path, target_crs):
     """
     Clips a GeoDataFrame to the bbox_geom and saves it.
     """
@@ -90,16 +96,13 @@ def create_excerpt(gdf, bbox_geom, output_path):
 
         # Ensure CRS is set and matches the target CRS
         if gdf.crs is None:
-            logging.warning(f"GeoDataFrame for {output_path.split('/')[-1]} has no CRS set. Assuming {TARGET_CRS}.")
-            gdf = gdf.set_crs(TARGET_CRS, allow_override=True) # Allow override if CRS is truly unknown but data is in target CRS
-        elif gdf.crs != TARGET_CRS:
-            logging.info(f"Reprojecting GeoDataFrame for {output_path.split('/')[-1]} from {gdf.crs} to {TARGET_CRS}.")
-            gdf = gdf.to_crs(TARGET_CRS)
+            logging.warning(f"GeoDataFrame for {output_path.split('/')[-1]} has no CRS set. Assuming {target_crs}.")
+            gdf = gdf.set_crs(target_crs, allow_override=True) # Allow override if CRS is truly unknown but data is in target CRS
+        elif gdf.crs != target_crs:
+            logging.info(f"Reprojecting GeoDataFrame for {output_path.split('/')[-1]} from {gdf.crs} to {target_crs}.")
+            gdf = gdf.to_crs(target_crs)
 
         # Clip the GeoDataFrame
-        # For points, 'within' is more appropriate. For polygons/lines, 'intersects' is often used.
-        # Using 'intersects' generally works well for creating excerpts.
-        # A robust way is to check geometry types, but intersects is a good default.
         clipped_gdf = gdf[gdf.geometry.intersects(bbox_geom)]
 
         if clipped_gdf.empty:
@@ -111,78 +114,23 @@ def create_excerpt(gdf, bbox_geom, output_path):
         clipped_gdf.to_parquet(output_path)
         logging.info(f"Successfully created excerpt: {output_path}")
 
-        # Check file size and resample if necessary
-        file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-        logging.info(f"Initial excerpt size for {output_path.split('/')[-1]}: {file_size_mb:.2f} MB")
-
-        if file_size_mb > 5:
-            logging.warning(
-                f"Excerpt {output_path} is {file_size_mb:.2f} MB (larger than 5MB). "
-                f"Attempting to resample to be < 10MB."
-            )
-            
-            TARGET_MAX_SAMPLING_MB = 9.5  # Target size in MB for resampling
-
-            # Only attempt to sample if the GeoDataFrame is not empty and sampling makes sense
-            if not clipped_gdf.empty:
-                # Calculate sampling fraction to target TARGET_MAX_SAMPLING_MB
-                # This fraction applies to the number of rows, assuming size is proportional to rows.
-                if file_size_mb > 0: # Avoid division by zero
-                    sampling_fraction_for_size = TARGET_MAX_SAMPLING_MB / file_size_mb
-                    
-                    if sampling_fraction_for_size < 1.0:
-                        # Apply this fraction to the number of rows
-                        n_target_rows = max(1, int(len(clipped_gdf) * sampling_fraction_for_size))
-                        
-                        if n_target_rows < len(clipped_gdf):
-                            logging.info(
-                                f"Resampling {output_path.split('/')[-1]} from {len(clipped_gdf)} rows to {n_target_rows} rows "
-                                f"(sampling fraction for size: {sampling_fraction_for_size:.4f})."
-                            )
-                            sampled_gdf = clipped_gdf.sample(n=n_target_rows, random_state=1) # random_state for reproducibility
-                            sampled_gdf.to_parquet(output_path)  # Overwrite the file
-                            file_size_mb = os.path.getsize(output_path) / (1024 * 1024)  # Update file_size_mb
-                            logging.info(
-                                f"New excerpt size for {output_path.split('/')[-1]} after sampling: {file_size_mb:.2f} MB"
-                            )
-                        else:
-                            logging.info(
-                                f"Calculated target rows ({n_target_rows}) is not less than current rows ({len(clipped_gdf)}). "
-                                f"Skipping resampling for {output_path.split('/')[-1]}. Current size: {file_size_mb:.2f} MB."
-                            )
-                    else:
-                        logging.info(
-                            f"Calculated sampling fraction for size ({sampling_fraction_for_size:.4f}) is >= 1.0. "
-                            f"File is likely already < {TARGET_MAX_SAMPLING_MB}MB or sampling won't reduce size significantly. "
-                            f"Skipping resampling for {output_path.split('/')[-1]}. Current size: {file_size_mb:.2f} MB."
-                        )
-                else:
-                    logging.warning(f"File size of {output_path.split('/')[-1]} is 0MB. Cannot calculate sampling fraction.")
-            else:
-                # This case should ideally not be reached if the function returned False earlier for empty clipped_gdf
-                logging.warning(f"Clipped GeoDataFrame for {output_path.split('/')[-1]} is empty. Cannot sample.")
-
-        # Final size check and warning
-        if file_size_mb > 10:
-            logging.warning(
-                f"FINAL Excerpt {output_path} is {file_size_mb:.2f} MB, which is STILL LARGER than 10MB "
-                "despite any sampling attempt."
-            )
-        elif file_size_mb > 5: # If it's between 5 and 10 MB (inclusive of 5, exclusive of 10 from above)
-             logging.warning(
-                f"FINAL Excerpt {output_path} is {file_size_mb:.2f} MB (between 5MB and 10MB)."
-            )
-        # If <= 5MB, no warning needed here as it meets the original implicit goal.
-
         return True
 
     except Exception as e:
         logging.error(f"Error processing dataset for {output_path.split('/')[-1]}: {e}")
         return False
 
-# --- Main Script ---
-if __name__ == "__main__":
-    logging.info("Starting data excerpt creation process...")
+def main(bbox_name):
+    """
+    Main function to create vector data excerpts.
+    """
+    logging.debug("Starting data excerpt creation process...")
+    logging.debug(f"Using bounding box: '{bbox_name}'")
+
+    # Get BBOX details from constants
+    selected_bbox = EXCERPT_BOUNDING_BOXES[bbox_name]
+    bbox_coords = selected_bbox['coords']
+    target_crs = selected_bbox['crs']
 
     # Resolve paths based on the location of this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -192,44 +140,46 @@ if __name__ == "__main__":
     constants_dir = os.path.dirname(constants_abs_path)
     output_dir_abs = os.path.abspath(os.path.join(constants_dir, OUTPUT_DIR_RELATIVE_TO_CONSTANTS))
 
-    logging.info(f"Attempting to load dataset paths from: {constants_abs_path}")
+    logging.debug(f"Attempting to load dataset paths from: {constants_abs_path}")
     loading_dict = load_loading_dict_from_file(constants_abs_path)
 
     if not loading_dict:
         logging.error("Failed to load dataset paths. Exiting.")
         sys.exit(1)
 
-    logging.info(f"Found {len(loading_dict)} datasets to process.")
-    logging.info(f"Output directory for excerpts: {output_dir_abs}")
+    logging.debug(f"Found {len(loading_dict)} datasets to process.")
+    logging.debug(f"Output directory for excerpts: {output_dir_abs}")
     os.makedirs(output_dir_abs, exist_ok=True)
 
     # Create a bounding box geometry
-    bbox_geometry = box(*BBOX_COORDS)
+    bbox_geometry = box(*bbox_coords)
     # Create a GeoDataFrame for the bbox to ensure it has a CRS for consistent operations
-    bbox_gdf = gpd.GeoDataFrame([{'geometry': bbox_geometry}], crs=TARGET_CRS)
+    bbox_gdf = gpd.GeoDataFrame([{'geometry': bbox_geometry}], crs=target_crs)
 
+    # Sanitize bbox_name for the filename
+    bbox_name_fs = bbox_name.replace(' ', '_')
 
     success_count = 0
     fail_count = 0
 
     for dataset_name, relative_parquet_path in loading_dict.items():
-        logging.info(f"--- Processing dataset: {dataset_name} ---")
+        logging.debug(f"--- Processing dataset: {dataset_name} ---")
         
         # Construct the absolute path to the Parquet file
         # The paths in loading_dict are relative to the constants.py file's directory (join-datasets)
         parquet_abs_path = os.path.abspath(os.path.join(constants_dir, relative_parquet_path))
         
-        output_filename = f"excerpt_{os.path.basename(relative_parquet_path)}"
+        output_filename = f"excerpt_{bbox_name_fs}_{os.path.basename(relative_parquet_path)}"
         output_path = os.path.join(output_dir_abs, output_filename)
 
-        logging.info(f"Input Parquet path: {parquet_abs_path}")
-        logging.info(f"Output excerpt path: {output_path}")
+        logging.debug(f"Input Parquet path: {parquet_abs_path}")
+        logging.debug(f"Output excerpt path: {output_path}")
 
         try:
             gdf = gpd.read_parquet(parquet_abs_path)
-            logging.info(f"Successfully loaded {dataset_name} with {len(gdf)} features.")
+            logging.debug(f"Successfully loaded {dataset_name} with {len(gdf)} features.")
             
-            if create_excerpt(gdf, bbox_gdf.geometry.iloc[0], output_path):
+            if create_excerpt(gdf, bbox_gdf.geometry.iloc[0], output_path, target_crs):
                 success_count += 1
             else:
                 fail_count +=1
@@ -240,11 +190,25 @@ if __name__ == "__main__":
         except Exception as e:
             logging.error(f"Failed to load or process {parquet_abs_path}: {e}")
             fail_count +=1
-        logging.info(f"--- Finished processing dataset: {dataset_name} ---")
+        logging.debug(f"--- Finished processing dataset: {dataset_name} ---")
 
 
     logging.info("--- Summary ---")
     logging.info(f"Total datasets processed: {len(loading_dict)}")
     logging.info(f"Successfully created excerpts: {success_count}")
     logging.info(f"Failed/skipped excerpts: {fail_count}")
-    logging.info("Data excerpt creation process finished.") 
+    logging.info("Data excerpt creation process finished.")
+
+# --- Main Script ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create vector data excerpts based on a named bounding box.")
+    parser.add_argument(
+        '--bbox-name',
+        type=str,
+        default='les landes',
+        choices=EXCERPT_BOUNDING_BOXES.keys(),
+        help=f"The name of the bounding box to use for the excerpt, defined in src/config/constants.py. "
+             f"Choices: {list(EXCERPT_BOUNDING_BOXES.keys())}"
+    )
+    args = parser.parse_args()
+    main(args.bbox_name) 
