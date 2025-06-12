@@ -1,79 +1,79 @@
-pt# Dataset Preprocessing Guide
+# Dataset Preprocessing Guide
 
-This guide details how each raw dataset is prepared before attribution. The notebooks live in `process-datasets/` and produce simplified `.parquet` files inside `data/processed_datasets/`. These paths correspond to the entries in `join-datasets/constants.py`.
+This document provides a technical overview of the preprocessing modules found in `src/preprocessing/`. These modules are responsible for transforming raw data into a standardized format suitable for the attribution pipeline. The entire workflow is orchestrated by the `src/inference/preprocess_excerpts.py` script.
 
-## Workflow Overview
-1. Execute the preprocessing notebooks in the order listed below.
-2. Verify the output files exist at the expected locations.
-3. Proceed to the attribution stage once all processed datasets are available.
+Each preprocessing module generates a GeoParquet file in the `outputs/preprocessing/` directory. These files adhere to a common schema, including columns for geometry, start/end dates, and disturbance class, ensuring they can be consumed by the attribution phase.
 
-## Preprocessing Steps per Dataset
+---
+
+## Preprocessing Modules
+
+Below are the details of each dataset's preprocessing logic.
 
 ### Senf & Seidl Disturbance Maps
-- **Notebook**: `Process_SenfSeidlmap.ipynb`
-- **Inputs**: Annual raster tiles describing disturbance year and type.
-- **Steps**:
-  1. Convert raster tiles to polygons.
-  2. Spatially join the attribution and year layers.
-  3. Merge polygons by disturbance type and year.
-  4. Save yearly polygons of fire, storm/beetle and other events.
 
-### DFDE Records
-- **Notebook**: `Process_DFDE_FR.ipynb`
-- **Inputs**: DFDE CSV/Excel export containing disturbance reports.
+- **Module**: `src/preprocessing/senfseidl.py`
+- **Function**: `process_senfseidl()`
+- **Inputs**: 
+    - Disturbance attribution raster (`...fire_wind_barkbeetle...tif`)
+    - Disturbance year raster (`...disturbance_year...tif`) from `excerpts/raw/senfseidl/`
 - **Steps**:
-  1. Geocode administrative names using a GeoParsing tool and OpenStreetMap.
-  2. Clean species names and translate when necessary.
-  3. Create polygons for each reported event with associated dates and classes.
+  1. Reads the year and cause raster files.
+  2. Converts raster pixels with valid disturbance data into polygons for each year.
+  3. Joins the year and cause information for each polygon.
+  4. Maps the raw raster values to the final disturbance classes defined in `src/config/constants.py`. This includes handling non-injective mappings where one raw value can map to multiple final classes (e.g., 'Storm/Biotic').
+  5. Filters the polygons to the specified year range.
+  6. Saves the resulting GeoDataFrame to `outputs/preprocessing/senfseidl_processed.parquet`.
 
-### French National Forest Inventory (NFI)
-- **Notebooks**: `Process_NFI_FR.ipynb` and `PostProcess_NFI.ipynb`
-- **Steps**:
-  1. Filter plots reporting incidents or visible management activity.
-  2. Convert the coordinates to EPSG:2154 and build a GeoDataFrame.
-  3. Map the `Incident` field to the six final disturbance classes.
-  4. Export points with disturbance class and start/end dates.
+### Health Monitoring (HM)
 
-### Health Monitoring Survey (HMS)
-- **Notebook**: `Process_health-monitoring_FR.ipynb`
+- **Module**: `src/preprocessing/hm.py`
+- **Function**: `process_hm()`
+- **Input**: A single Parquet file from `excerpts/raw/hm/`.
 - **Steps**:
-  1. Keep observations with medium or higher severity.
-  2. Map detailed survey categories to the six final classes.
-  3. Output annual point data with disturbance type and species.
+  1. Loads the raw point data from the Parquet file.
+  2. Filters events to the specified year range.
+  3. Maps the detailed survey categories to the final, harmonized disturbance classes.
+  4. Standardizes column names and data types.
+  5. Saves the processed point data to `outputs/preprocessing/hm_processed.parquet`.
+
+### Fire Polygons
+
+- **Module**: `src/preprocessing/firepolygons.py`
+- **Function**: `process_firepolygons()`
+- **Inputs**:
+    - Polygon data from GPKG files in `excerpts/raw/firepolygons_gpkg/`.
+    - Attribute data from `excerpts/raw/FFUD_Inventory_Arthur_excerpt.csv`.
+- **Steps**:
+  1. Reads the polygon geometries from the GPKG files.
+  2. Reads the disturbance attributes (like event dates) from the CSV file.
+  3. Merges the geometries with their corresponding attributes.
+  4. Filters events based on the specified year range.
+  5. Assigns the 'Fire' class to all events.
+  6. Saves the final polygons to `outputs/preprocessing/firepolygons_processed.parquet`.
 
 ### Combined Drought Indicator (CDI)
-- **Notebook**: `Process_cdi.ipynb`
-- **Steps**:
-  1. Select pixels repeatedly flagged "Alert" followed by "Temporary Recovery".
-  2. Convert the selected pixels to polygons for each year.
-  3. Save yearly drought polygons.
 
-### Fire Polygons from Sentinel‑2
-- **Notebook**: `Process_firepolygons.ipynb`
+- **Module**: `src/preprocessing/cdi.py`
+- **Function**: `process_cdi()`
+- **Input**: A set of yearly CDI raster files (`.tif`) from `excerpts/raw/cdi/`.
 - **Steps**:
-  1. Read daily burned area polygons derived from Sentinel‑2 imagery.
-  2. Export the polygons as daily records.
+  1. Iterates through the raster files, filtering for the specified year range.
+  2. For each raster, it identifies pixels indicating drought stress (values corresponding to 'Alert' or 'Warning' conditions).
+  3. Converts these pixels into polygons.
+  4. Assigns the 'Drought' class and the corresponding year to the polygons.
+  5. Merges the data from all processed rasters.
+  6. Saves the drought polygons to `outputs/preprocessing/cdi_processed.parquet`.
 
-### FORMS Clear‑Cuts
-- **Notebook**: `Preprocess_FORMS.ipynb`
+### FORMS Clear-Cuts
+
+- **Module**: `src/preprocessing/forms.py`
+- **Function**: `process_forms()`
+- **Input**: Raster files (`.tif`) representing potential clear-cuts from `excerpts/raw/forms/`.
 - **Steps**:
-  1. Compute canopy height difference using Sentinel‑2 and GEDI inputs.
-  2. Keep areas with a drop larger than 5 m and size above 0.5 ha.
-  3. Filter polygons by geometric shape to retain likely clear‑cuts.
-  4. Write yearly clear‑cut polygons.
-
-### BDIFF Fire Records
-- **Notebook**: `process_bdiff.ipynb`
-- **Steps**:
-  1. Geocode administrative units mentioned in BDIFF.
-  2. Keep only fires larger than 0.5 ha.
-  3. Save polygons with burned area and alert date.
-
-### BD Forêt Tree Species Map
-- **Notebook**: `Process_BDFORET.ipynb`
-- **Steps**:
-  1. Standardise polygon resolution to 30 m.
-  2. Translate tree species to English names.
-  3. Export polygons for use in later joins.
-
-All notebooks output simplified `.parquet` files used by the attribution module. Further methodological context is described in the `draft_article` document.
+  1. Processes each raster file within the specified year range.
+  2. Identifies pixels that represent clear-cuts based on their value.
+  3. Converts these pixels into polygons.
+  4. Assigns the 'Anthropogenic' class and the corresponding year.
+  5. Merges data from all rasters.
+  6. Saves the clear-cut polygons to `outputs/preprocessing/forms_processed.parquet`.
