@@ -5,6 +5,11 @@
 /old-images/
 /sampling/
 /outputs/
+/excerpts/
+/article/ 
+/visualization/
+/join-datasets/
+/process-datasets/
 
 # Ignore macOS and Python artifacts
 .DS_Store

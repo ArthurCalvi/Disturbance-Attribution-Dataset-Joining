@@ -42,12 +42,32 @@ def _split_classes(class_val: Any) -> List[str]:
 class AttributionParams:
     """Parameters controlling the attribution pipeline."""
 
-    spatial_half_life: float = 300.0  # Reduced from 1000.0 meters
-    temporal_half_life: float = 180.0  # days
-    lambda_intra: float = 0.5
-    louvain_resolution: float = 1.0
-    alpha_t: float = 10000.0
-    alpha_c: float = 500.0
+    # Proximity weights for graph edge building
+    spatial_half_life: float = 300.0  # Spatial decay half-life in meters.
+    temporal_half_life: float = 180.0  # Temporal decay half-life in days.
+
+    # Candidate pair filtering for graph edge building
+    max_spatial_dist_m: float = 1500.0  # Maximum spatial distance for candidate pairs (meters).
+    max_temporal_dist_days: float = 720.0  # Maximum temporal distance for candidate pairs (days).
+
+    # Edge weighting
+    lambda_intra: float = 0.5  # Down-weighting factor for within-dataset links.
+
+    # Louvain community detection
+    louvain_resolution: float = 1.0  # Resolution parameter for Louvain algorithm.
+
+    # HDBSCAN feature space scaling
+    alpha_t: float = 10000.0  # Temporal scaling factor.
+    alpha_c: float = 500.0  # Cause penalty (spatial equivalent in meters).
+
+    # HDBSCAN clustering parameters
+    hdbscan_min_cluster_size_abs: int = 6  # Absolute minimum cluster size for HDBSCAN.
+    hdbscan_min_cluster_size_rel: float = 0.05  # Relative minimum cluster size for HDBSCAN (fraction of community size).
+    hdbscan_min_samples_abs: int = 2  # Absolute minimum samples for HDBSCAN.
+    hdbscan_min_samples_rel: float = 0.02  # Relative minimum samples for HDBSCAN (fraction of community size).
+
+    # Attribution voting
+    senf_self_vote_factor: float = 0.3  # Weight factor for a Senf&Seidl polygon's self-vote.
 
 
 DEFAULT_RELIABILITY: Dict[str, float] = {
@@ -219,7 +239,7 @@ class Attribution:
     def _candidate_pairs(self) -> Iterable[Tuple[int, int]]:
         sindex = self.data.sindex
         for idx, geom in enumerate(self.data.geometry):
-            bbox = geom.centroid.buffer(1500).bounds # Reduced from 6000
+            bbox = geom.centroid.buffer(self.params.max_spatial_dist_m).bounds # Reduced from 6000
             candidates = list(sindex.intersection(bbox))
             for j in candidates:
                 if j <= idx:
@@ -228,7 +248,7 @@ class Attribution:
                     self.data.loc[idx, "mid_date"],
                     self.data.loc[j, "mid_date"],
                 )
-                if dt > 720:
+                if dt > self.params.max_temporal_dist_days:
                     continue
                 yield idx, j
 
@@ -236,7 +256,7 @@ class Attribution:
         a = self.data.loc[idx]
         b = self.data.loc[j]
         ds = a.geometry.distance(b.geometry)
-        if ds > 1500: # Reduced from 6000
+        if ds > self.params.max_spatial_dist_m: # Reduced from 6000
             return 0.0
         w_s = np.exp(-ds / self.params.spatial_half_life)
         dt = self._temporal_distance(a.mid_date, b.mid_date)
@@ -426,8 +446,8 @@ class Attribution:
                 self.data.loc[node_idx, "hdb_id"] = -1
             return cluster_base
 
-        min_cluster_size = max(6, int(0.05 * len(df)))
-        min_samples = max(2, int(0.02 * len(df)))
+        min_cluster_size = max(self.params.hdbscan_min_cluster_size_abs, int(self.params.hdbscan_min_cluster_size_rel * len(df)))
+        min_samples = max(self.params.hdbscan_min_samples_abs, int(self.params.hdbscan_min_samples_rel * len(df)))
         
         # Ensure min_cluster_size is not greater than the number of samples in X
         if min_cluster_size > X.shape[0]:
@@ -660,7 +680,7 @@ class Attribution:
             event_classes_list = _split_classes(senf_event_class_value) # Handles list, string, None
 
             if event_classes_list: # If there are actual classes to vote for
-                per_class_self_vote_weight = (0.3 * r_s) / len(event_classes_list) # Senf&Seidl self-vote scaled by its reliability and number of its own classes
+                per_class_self_vote_weight = (self.params.senf_self_vote_factor * r_s) / len(event_classes_list) # Senf&Seidl self-vote scaled by its reliability and number of its own classes
                 for c in event_classes_list:
                     current_votes[c] = current_votes.get(c, 0.0) + per_class_self_vote_weight
             elif not current_votes: # No cluster votes AND no self-vote classes (e.g. class was None or empty)

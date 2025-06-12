@@ -6,6 +6,7 @@ from shapely.geometry import box
 import shutil # For copying the CSV
 import argparse
 import sys
+from tqdm import tqdm
 
 # Add src to sys.path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +18,8 @@ from config.constants import EXCERPT_BOUNDING_BOXES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Suppress noisy INFO logs from fiona, used by geopandas
+logging.getLogger('fiona').setLevel(logging.WARNING)
 
 # --- Constants ---
 # Path to the external CSV file
@@ -54,40 +57,41 @@ def create_gpkg_excerpts(bbox_name):
     gpkg_files_skipped_error = 0
     gpkg_files_empty_clip = 0
 
-    for filename in os.listdir(FIRE_GPKG_DIR_PATH):
-        if filename.lower().endswith(".gpkg"):
-            file_path = os.path.join(FIRE_GPKG_DIR_PATH, filename)
+    gpkg_files = [f for f in os.listdir(FIRE_GPKG_DIR_PATH) if f.lower().endswith(".gpkg")]
 
-            # Sanitize bbox_name for the filename
-            bbox_name_fs = bbox_name.replace(' ', '_')
-            output_path = os.path.join(abs_output_gpkg_dir, f"excerpt_{bbox_name_fs}_{filename}")
-            logging.debug(f"Processing GPKG: {file_path}")
+    for filename in tqdm(gpkg_files, desc="Clipping fire polygons", unit="file"):
+        file_path = os.path.join(FIRE_GPKG_DIR_PATH, filename)
 
-            try:
-                gdf = gpd.read_file(file_path)
-                
-                # Ensure correct CRS before clipping
-                if gdf.crs is None:
-                    logging.warning(f"CRS for {filename} is missing. Assuming EPSG:2154 based on notebook context.")
-                    gdf.crs = TARGET_CRS_EPSG2154 # Common case in notebook
-                elif gdf.crs.to_string() != bbox_crs:
-                    logging.debug(f"Reprojecting {filename} from {gdf.crs.to_string()} to {bbox_crs}")
-                    gdf = gdf.to_crs(bbox_crs)
+        # Sanitize bbox_name for the filename
+        bbox_name_fs = bbox_name.replace(' ', '_')
+        output_path = os.path.join(abs_output_gpkg_dir, f"excerpt_{bbox_name_fs}_{filename}")
+        logging.debug(f"Processing GPKG: {file_path}")
 
-                clipped_gdf = gpd.clip(gdf, bbox_gdf, keep_geom_type=True)
+        try:
+            gdf = gpd.read_file(file_path)
+            
+            # Ensure correct CRS before clipping
+            if gdf.crs is None:
+                logging.warning(f"CRS for {filename} is missing. Assuming EPSG:2154 based on notebook context.")
+                gdf.crs = TARGET_CRS_EPSG2154 # Common case in notebook
+            elif gdf.crs.to_string() != bbox_crs:
+                logging.debug(f"Reprojecting {filename} from {gdf.crs.to_string()} to {bbox_crs}")
+                gdf = gdf.to_crs(bbox_crs)
 
-                if clipped_gdf.empty:
-                    logging.debug(f"No features in {filename} intersected the BBOX. Skipping save.")
-                    gpkg_files_empty_clip += 1
-                    continue
+            clipped_gdf = gpd.clip(gdf, bbox_gdf, keep_geom_type=True)
 
-                clipped_gdf.to_file(output_path, driver="GPKG")
-                gpkg_files_processed += 1
-                logging.debug(f"Saved clipped GPKG to {output_path}")
+            if clipped_gdf.empty:
+                logging.debug(f"No features in {filename} intersected the BBOX. Skipping save.")
+                gpkg_files_empty_clip += 1
+                continue
 
-            except Exception as e:
-                logging.error(f"Error processing {filename}: {e}", exc_info=True)
-                gpkg_files_skipped_error +=1
+            clipped_gdf.to_file(output_path, driver="GPKG")
+            gpkg_files_processed += 1
+            logging.debug(f"Saved clipped GPKG to {output_path}")
+
+        except Exception as e:
+            logging.error(f"Error processing {filename}: {e}", exc_info=True)
+            gpkg_files_skipped_error +=1
 
     logging.info("--- Fire Polygon GPKG Excerpt Creation Summary ---")
     logging.info(f"Successfully processed and saved: {gpkg_files_processed} GPKG files.")

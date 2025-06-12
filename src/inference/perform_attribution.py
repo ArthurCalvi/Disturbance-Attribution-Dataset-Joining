@@ -12,6 +12,7 @@ import shutil # Import shutil for clearing cache directory
 import warnings # Import warnings
 import subprocess # For calling the QC script
 import numpy as np # Added for np.ndarray
+import json # To save/load parameters
 
 # Suppress specific FutureWarning from sklearn used by hdbscan
 warnings.simplefilter(action='ignore', category=FutureWarning) 
@@ -76,14 +77,82 @@ def main():
     """
     Main function to run the disturbance attribution pipeline.
     """
-    parser = argparse.ArgumentParser(description="Run the disturbance attribution pipeline.")
-    parser.add_argument("--recompute-prepared-data", action="store_true", help="Force recomputation of prepared data, ignoring cache.")
-    parser.add_argument("--recompute-graph", action="store_true", help="Force rebuilding of the graph, ignoring cache.")
-    parser.add_argument("--recompute-communities", action="store_true", help="Force redetection of communities, ignoring cache.")
-    parser.add_argument("--clear-cache", action="store_true", help="Clear the temporary attribution cache directory before running.")
+    parser = argparse.ArgumentParser(
+        description="Run the disturbance attribution pipeline.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    # --- Cache control arguments ---
+    cache_group = parser.add_argument_group('Cache Control')
+    cache_group.add_argument("--recompute-prepared-data", action="store_true", help="Force recomputation of prepared data, ignoring cache.")
+    cache_group.add_argument("--recompute-graph", action="store_true", help="Force rebuilding of the graph, ignoring cache.")
+    cache_group.add_argument("--recompute-communities", action="store_true", help="Force redetection of communities, ignoring cache.")
+    cache_group.add_argument("--clear-cache", action="store_true", help="Clear the temporary attribution cache directory before running.")
+    
+    # --- Attribution parameter arguments ---
+    # Defaults are taken from AttributionParams if not provided.
+    param_group = parser.add_argument_group('Attribution Hyperparameters')
+    param_group.add_argument('--spatial-half-life', type=float, default=None, help="Spatial decay half-life in meters.")
+    param_group.add_argument('--temporal-half-life', type=float, default=None, help="Temporal decay half-life in days.")
+    param_group.add_argument('--max-spatial-dist-m', type=float, default=None, help="Maximum spatial distance for candidate pairs (meters).")
+    param_group.add_argument('--max-temporal-dist-days', type=float, default=None, help="Maximum temporal distance for candidate pairs (days).")
+    param_group.add_argument('--lambda-intra', type=float, default=None, help="Down-weighting factor for within-dataset links.")
+    param_group.add_argument('--louvain-resolution', type=float, default=None, help="Resolution parameter for Louvain algorithm.")
+    param_group.add_argument('--alpha-t', type=float, default=None, help="HDBSCAN temporal scaling factor.")
+    param_group.add_argument('--alpha-c', type=float, default=None, help="HDBSCAN cause penalty (spatial equivalent in meters).")
+    param_group.add_argument('--hdbscan-min-cluster-size-abs', type=int, default=None, help="Absolute minimum cluster size for HDBSCAN.")
+    param_group.add_argument('--hdbscan-min-cluster-size-rel', type=float, default=None, help="Relative min cluster size for HDBSCAN (fraction of community).")
+    param_group.add_argument('--hdbscan-min-samples-abs', type=int, default=None, help="Absolute minimum samples for HDBSCAN.")
+    param_group.add_argument('--hdbscan-min-samples-rel', type=float, default=None, help="Relative min samples for HDBSCAN (fraction of community).")
+    param_group.add_argument('--senf-self-vote-factor', type=float, default=None, help="Weight factor for a Senf&Seidl polygon's self-vote.")
+
     args = parser.parse_args()
 
-    if args.clear_cache:
+    # --- Parameter-based cache validation ---
+    params_path = TEMP_ATTRIBUTION_DIR / "params.json"
+    
+    # Create AttributionParams instance based on defaults and CLI args for comparison
+    cli_params_overrides = {
+        key: value for key, value in vars(args).items() 
+        if key in AttributionParams.__dataclass_fields__ and value is not None
+    }
+    current_params = AttributionParams(**cli_params_overrides)
+    
+    should_clear_cache_due_to_params = False
+
+    if not args.clear_cache and params_path.exists():
+        try:
+            with open(params_path, 'r') as f:
+                cached_params_dict = json.load(f)
+            logging.info("Comparing current parameters with cached parameters...")
+            
+            current_params_dict = current_params.__dict__
+            
+            if cached_params_dict != current_params_dict:
+                logging.warning("Attribution parameters have changed. Forcing cache clear.")
+                # Find what changed for better logging
+                changed_keys = {
+                    k for k in current_params_dict 
+                    if current_params_dict.get(k) != cached_params_dict.get(k)
+                }
+                for k in changed_keys:
+                    cached_val = cached_params_dict.get(k, 'Not in cache')
+                    current_val = current_params_dict.get(k)
+                    logging.warning(f"  - {k}: cached='{cached_val}', current='{current_val}'")
+                should_clear_cache_due_to_params = True
+            else:
+                logging.info("Parameters match cached version. Using existing cache.")
+
+        except Exception as e:
+            logging.warning(f"Could not read or compare cached parameters file: {e}. Forcing cache clear.")
+            should_clear_cache_due_to_params = True
+            
+    elif not args.clear_cache and not params_path.exists() and any(TEMP_ATTRIBUTION_DIR.iterdir()):
+        # If params file doesn't exist but cache dir is not empty, it's a stale cache.
+        logging.warning("Cache directory contains data but no parameters file. Forcing cache clear.")
+        should_clear_cache_due_to_params = True
+
+    if args.clear_cache or should_clear_cache_due_to_params:
         if TEMP_ATTRIBUTION_DIR.exists():
             try:
                 shutil.rmtree(TEMP_ATTRIBUTION_DIR)
@@ -137,11 +206,10 @@ def main():
     # Based on test_attribution.py, it seems to expect a dict of gdfs.
     try:
         logging.info("Initializing Attribution class...")
-        attribution_params = AttributionParams() # Using defaults or previously adjusted values
-        
+
         attr = Attribution(
             gdf_dict=preprocessed_gdfs,
-            params=attribution_params, 
+            params=current_params, # Use the params object created earlier
             reliability=None, # Use default reliability
             temp_dir=TEMP_ATTRIBUTION_DIR, # Pass the temporary directory
             force_recompute_prepared_data=args.recompute_prepared_data,
@@ -449,6 +517,15 @@ def main():
             logging.warning("Final attributed GeoDataFrame is None or empty. Nothing to save.")
 
         logging.info(f"Attribution pipeline completed. Timings: {timings}")
+
+        # --- Save parameters on successful run ---
+        try:
+            with open(params_path, 'w') as f:
+                json.dump(current_params.__dict__, f, indent=4)
+            logging.info(f"Successfully saved current parameters to {params_path}")
+        except Exception as e:
+            logging.error(f"Could not save parameters to {params_path}: {e}")
+        # --- End parameter saving ---
 
     except Exception as e:
         logging.error(f"Error during attribution steps: {e}", exc_info=True)

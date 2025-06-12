@@ -11,7 +11,7 @@ from rasterio.features import shapes
 from shapely.geometry import shape
 import logging
 import pandas as pd
-from typing import Optional
+from typing import Optional, List
 
 # Import the new constants
 from src.config.constants import RAW_TO_FINAL_TARGET_MAPPINGS, FINAL_TARGET_CLASSES
@@ -19,13 +19,12 @@ from src.config.constants import RAW_TO_FINAL_TARGET_MAPPINGS, FINAL_TARGET_CLAS
 logger = logging.getLogger(__name__)
 
 def process_cdi(
-    input_dir: str, 
+    raster_files: List[str], 
     output_file: str,
     start_year: Optional[int] = None,
     end_year: Optional[int] = None
 ) -> gpd.GeoDataFrame:
     """Convert CDI raster files to polygons (value >=7), filter by year, and save parquet."""
-    input_path = Path(input_dir)
     polygons = []
     final_crs = 'EPSG:2154'
     source_crs = None
@@ -33,7 +32,8 @@ def process_cdi(
     if start_year and end_year:
         logger.info(f"Applying date filter: {start_year}-{end_year}")
 
-    for tif in sorted(input_path.glob('*.tif')):
+    for raster_path in sorted(raster_files):
+        tif = Path(raster_path)
         try:
             date_str = tif.stem.split('_')[-2]
             event_date = datetime.strptime(date_str, '%Y%m%d')

@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import geopandas as gpd
 import argparse
+import glob
 
 # Add src to Python path to allow direct execution of the script
 # and for imports to work correctly.
@@ -45,15 +46,24 @@ def main(start_year_arg: int, end_year_arg: int):
     # --- Senf & Seidl ---
     logging.info("--- Starting Senf & Seidl preprocessing ---")
     try:
-        senfseidl_cause_raster_path = EXCERPTS_RAW_DIR / "excerpt_fire_wind_barkbeetle_france.tif"
-        senfseidl_year_raster_path = EXCERPTS_RAW_DIR / "excerpt_disturbance_year_1986-2020_france.tif"
-        
-        if not senfseidl_cause_raster_path.exists():
-            logging.warning(f"Senf & Seidl cause raster not found at: {senfseidl_cause_raster_path}")
-        if not senfseidl_year_raster_path.exists():
-            logging.warning(f"Senf & Seidl year raster not found at: {senfseidl_year_raster_path}")
+        senfseidl_dir = EXCERPTS_RAW_DIR / "senfseidl"
+        senfseidl_cause_raster_path = None
+        senfseidl_year_raster_path = None
 
-        if senfseidl_cause_raster_path.exists() and senfseidl_year_raster_path.exists():
+        if senfseidl_dir.is_dir():
+            tif_files = list(senfseidl_dir.glob('*.tif'))
+            for tif_file in tif_files:
+                if 'fire_wind_barkbeetle' in tif_file.name:
+                    senfseidl_cause_raster_path = tif_file
+                elif 'disturbance_year' in tif_file.name:
+                    senfseidl_year_raster_path = tif_file
+        
+        if not senfseidl_cause_raster_path:
+            logging.warning(f"Senf & Seidl cause raster not found in: {senfseidl_dir}")
+        if not senfseidl_year_raster_path:
+            logging.warning(f"Senf & Seidl year raster not found in: {senfseidl_dir}")
+
+        if senfseidl_cause_raster_path and senfseidl_year_raster_path:
             output_senfseidl_path = OUTPUT_PREPROCESSING_DIR / "senfseidl_processed.parquet"
             logging.info(f"Processing Senf & Seidl. Output: {output_senfseidl_path}")
             processed_senfseidl_gdf = senfseidl.process_senfseidl(
@@ -90,11 +100,14 @@ def main(start_year_arg: int, end_year_arg: int):
     # --- Health Monitoring (HM) ---
     logging.info("--- Starting Health Monitoring (HM) preprocessing ---")
     try:
-        # The excerpt is already a parquet file, as per list_dir and AGENTS.md.
-        # The original hm.py expects a parquet file.
-        hm_input_path = EXCERPTS_RAW_DIR / "excerpt_health_monitoring.parquet"
+        hm_dir = EXCERPTS_RAW_DIR / "hm"
+        hm_input_path = None
+        if hm_dir.is_dir():
+            parquet_files = list(hm_dir.glob('*.parquet'))
+            if parquet_files:
+                hm_input_path = parquet_files[0] # Assume only one parquet file
 
-        if hm_input_path.exists():
+        if hm_input_path:
             output_hm_path = OUTPUT_PREPROCESSING_DIR / "hm_processed.parquet"
             logging.info(f"Processing Health Monitoring. Input: {hm_input_path}, Output: {output_hm_path}")
             # Log count before processing for HM, as it's already vector
@@ -138,19 +151,26 @@ def main(start_year_arg: int, end_year_arg: int):
     logging.info("--- Starting Fire Polygons preprocessing ---")
     try:
         firepolygons_gpkg_dir = EXCERPTS_RAW_DIR / "firepolygons_gpkg"
+        # The CSV file name seems to be consistent.
         firepolygons_csv_path = EXCERPTS_RAW_DIR / "FFUD_Inventory_Arthur_excerpt.csv"
+        gpkg_files = []
 
         if not firepolygons_gpkg_dir.is_dir():
              logging.warning(f"Fire Polygons GPKG directory not found or not a directory: {firepolygons_gpkg_dir}")
+        else:
+            gpkg_files = [str(p) for p in firepolygons_gpkg_dir.glob('*.gpkg')]
+            if not gpkg_files:
+                logging.warning(f"No GPKG files found in {firepolygons_gpkg_dir}")
+
         if not firepolygons_csv_path.exists():
             logging.warning(f"Fire Polygons CSV attributes file not found: {firepolygons_csv_path}")
 
-        if firepolygons_gpkg_dir.is_dir() and firepolygons_csv_path.exists():
+        if gpkg_files and firepolygons_csv_path.exists():
             output_firepolygons_path = OUTPUT_PREPROCESSING_DIR / "firepolygons_processed.parquet"
-            logging.info(f"Processing Fire Polygons. GPKG Dir: {firepolygons_gpkg_dir}, CSV: {firepolygons_csv_path}, Output: {output_firepolygons_path}")
+            logging.info(f"Processing Fire Polygons. Found {len(gpkg_files)} GPKG files. CSV: {firepolygons_csv_path}, Output: {output_firepolygons_path}")
             processed_firepolygons_gdf = firepolygons.process_firepolygons(
                 csv_file=str(firepolygons_csv_path),
-                polygon_dir=str(firepolygons_gpkg_dir),
+                polygon_files=gpkg_files,
                 output_file=str(output_firepolygons_path),
                 start_year=start_year_arg,
                 end_year=end_year_arg
@@ -183,15 +203,18 @@ def main(start_year_arg: int, end_year_arg: int):
     logging.info("--- Starting CDI preprocessing ---")
     try:
         cdi_rasters_dir = EXCERPTS_RAW_DIR / "cdi"
+        cdi_raster_files = []
 
         if not cdi_rasters_dir.is_dir():
             logging.warning(f"CDI raster directory not found or not a directory: {cdi_rasters_dir}")
+        else:
+            cdi_raster_files = [str(p) for p in cdi_rasters_dir.glob('*.tif')]
         
-        if cdi_rasters_dir.is_dir() and any(cdi_rasters_dir.iterdir()):
+        if cdi_raster_files:
             output_cdi_path = OUTPUT_PREPROCESSING_DIR / "cdi_processed.parquet"
-            logging.info(f"Processing CDI. Input Dir: {cdi_rasters_dir}, Output: {output_cdi_path}")
+            logging.info(f"Processing CDI. Found {len(cdi_raster_files)} rasters. Output: {output_cdi_path}")
             processed_cdi_gdf = cdi.process_cdi(
-                input_dir=str(cdi_rasters_dir),
+                raster_files=cdi_raster_files,
                 output_file=str(output_cdi_path),
                 start_year=start_year_arg,
                 end_year=end_year_arg
@@ -223,34 +246,12 @@ def main(start_year_arg: int, end_year_arg: int):
     # --- FORMS (Forest Height) ---
     logging.info("--- Starting FORMS preprocessing ---")
     try:
-        # Using the two year-specific rasters for difference calculation
-        forms_raster_path_2022 = EXCERPTS_RAW_DIR / "excerpt_Height_mavg_2022.tif"
-        forms_raster_path_2023 = EXCERPTS_RAW_DIR / "excerpt_Height_mavg_2023.tif"
-        forms_raster_path_2018 = EXCERPTS_RAW_DIR / "excerpt_Height_mavg_2018.tif"
-        forms_raster_path_2019 = EXCERPTS_RAW_DIR / "excerpt_Height_mavg_2019.tif"
-
-        
-        # The forms.process_forms function expects a list of raster paths, sorted by date.
+        forms_dir = EXCERPTS_RAW_DIR / "forms"
         forms_raster_paths = []
-        if forms_raster_path_2022.exists():
-            forms_raster_paths.append(str(forms_raster_path_2022))
+        if forms_dir.is_dir():
+            forms_raster_paths = [str(p) for p in sorted(forms_dir.glob('*.tif'))]
         else:
-            logging.warning(f"FORMS raster 2022 not found: {forms_raster_path_2022}")
-            
-        if forms_raster_path_2023.exists():
-            forms_raster_paths.append(str(forms_raster_path_2023))
-        else:
-            logging.warning(f"FORMS raster 2023 not found: {forms_raster_path_2023}")
-
-        if forms_raster_path_2018.exists():
-            forms_raster_paths.append(str(forms_raster_path_2018))
-        else:
-            logging.warning(f"FORMS raster 2018 not found: {forms_raster_path_2018}")
-            
-        if forms_raster_path_2019.exists():
-            forms_raster_paths.append(str(forms_raster_path_2019))
-        else:
-            logging.warning(f"FORMS raster 2019 not found: {forms_raster_path_2019}")
+            logging.warning(f"FORMS raster directory not found: {forms_dir}")
 
         # Ensure there are at least two rasters to compute differences
         if len(forms_raster_paths) >= 2:

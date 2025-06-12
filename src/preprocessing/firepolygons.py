@@ -8,7 +8,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import logging
-from typing import Optional
+from typing import Optional, List
 
 # Import the new constants
 from src.config.constants import RAW_TO_FINAL_TARGET_MAPPINGS, FINAL_TARGET_CLASSES
@@ -17,20 +17,21 @@ logger = logging.getLogger(__name__)
 
 def process_firepolygons(
     csv_file: str, 
-    polygon_dir: str, 
+    polygon_files: List[str], 
     output_file: str,
     start_year: Optional[int] = None,
     end_year: Optional[int] = None
 ) -> gpd.GeoDataFrame:
     """Join fire polygons with attributes, filter by year, and save parquet."""
-    logger.info(f"Starting Fire Polygons processing. CSV: {csv_file}, Dir: {polygon_dir}")
+    logger.info(f"Starting Fire Polygons processing. CSV: {csv_file}, Files: {len(polygon_files)} GPKG files")
     if start_year and end_year:
         logger.info(f"Applying date filter: {start_year}-{end_year}")
 
     try:
         df = pd.read_csv(csv_file, sep=';')
         uid_polygons = []
-        for gpkg in Path(polygon_dir).glob('*.gpkg'):
+        for gpkg_path in polygon_files:
+            gpkg = Path(gpkg_path)
             try:
                 gdf_gpkg = gpd.read_file(gpkg).to_crs('EPSG:2154')
                 if not gdf_gpkg.empty:
@@ -42,7 +43,7 @@ def process_firepolygons(
                 continue
         
         if not uid_polygons:
-            logger.warning("No valid polygons found in the GPKG directory. Returning empty GeoDataFrame.")
+            logger.warning("No valid polygons found in the provided GPKG files. Returning empty GeoDataFrame.")
             final_columns = [
                 'uuid', 'year', 'start_date', 'end_date', 'class', 'dataset',
                 'forest_area_m2', 'essence', 'name', 'geometry'

@@ -11,14 +11,16 @@ networkx
 numpy
 pandas
 Pillow
-rasterio
+rasterio==1.3.10
+rioxarray==0.15.4
 scikit-learn
 scipy
 seaborn
 shapely
 thefuzz
-tqdm
-xyzservices
+tqdm==4.66.4
+utm==0.7.0
+XlsxWriter==3.2.0
 pandas
 geopandas
 dask[dataframe]
@@ -38,3 +40,4 @@ joblib
 openpyxl
 pytest
 hdbscan
+gdown

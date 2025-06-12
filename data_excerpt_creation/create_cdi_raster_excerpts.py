@@ -8,6 +8,8 @@ import geopandas as gpd
 import numpy as np
 import argparse
 import sys
+import warnings
+from tqdm import tqdm
 
 # Add src to sys.path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +40,7 @@ def create_cdi_raster_excerpt(
     bbox_crs
 ):
     """Crops a single CDI raster file to a predefined BBOX and saves it as an excerpt."""
-    logging.info(f"Processing: {input_raster_path}")
+    logging.debug(f"Processing: {input_raster_path}")
     try:
         with rasterio.open(input_raster_path) as src:
             raster_crs = src.crs
@@ -72,13 +74,15 @@ def create_cdi_raster_excerpt(
             if src.nodata is not None and src.nodata != NODATA_VAL:
                 out_image[out_image == src.nodata] = NODATA_VAL
             
-            out_image_typed = out_image.astype(OUTPUT_DTYPE)
+            # Suppress the specific warning about casting invalid values
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                out_image_typed = out_image.astype(OUTPUT_DTYPE)
 
             with rasterio.open(output_raster_path, "w", **out_meta) as dest:
                 dest.write(out_image_typed)
             
-            file_size_mb = os.path.getsize(output_raster_path) / (1024 * 1024)
-            logging.debug(f"Saved excerpt: {output_raster_path}, size: {file_size_mb:.2f} MB")
+            logging.debug(f"Saved excerpt: {output_raster_path}")
             return True
 
     except Exception as e:
@@ -105,23 +109,24 @@ def main(bbox_name):
         logging.error(f"Source directory not found: {CDI_RASTER_DIR_PATH}")
         sys.exit(1)
 
+    tiff_files = [f for f in os.listdir(CDI_RASTER_DIR_PATH) if f.lower().endswith(('.tif', '.tiff'))]
+    
     processed_files = 0
     failed_files = 0
-    for filename in os.listdir(CDI_RASTER_DIR_PATH):
-        if filename.lower().endswith('.tif') or filename.lower().endswith('.tiff'):
-            input_raster_path = os.path.join(CDI_RASTER_DIR_PATH, filename)
-            
-            # Sanitize bbox_name for the filename
-            bbox_name_fs = bbox_name.replace(' ', '_')
-            output_raster_name = f"excerpt_{bbox_name_fs}_{filename}"
-            output_raster_path = os.path.join(abs_output_dir, output_raster_name)
+    
+    # Use tqdm for a progress bar
+    for filename in tqdm(tiff_files, desc="Processing CDI rasters", unit="file"):
+        input_raster_path = os.path.join(CDI_RASTER_DIR_PATH, filename)
+        
+        # Sanitize bbox_name for the filename
+        bbox_name_fs = bbox_name.replace(' ', '_')
+        output_raster_name = f"excerpt_{bbox_name_fs}_{filename}"
+        output_raster_path = os.path.join(abs_output_dir, output_raster_name)
 
-            if create_cdi_raster_excerpt(input_raster_path, output_raster_path, bbox_geom, bbox_crs):
-                processed_files += 1
-            else:
-                failed_files += 1
+        if create_cdi_raster_excerpt(input_raster_path, output_raster_path, bbox_geom, bbox_crs):
+            processed_files += 1
         else:
-            logging.debug(f"Skipping non-TIFF file: {filename}")
+            failed_files += 1
 
     logging.info("--- Summary ---")
     if processed_files == 0 and failed_files == 0:

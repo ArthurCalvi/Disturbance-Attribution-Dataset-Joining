@@ -2,6 +2,23 @@
 
 This file tracks the major steps and changes made to the repository.
 
+## 2024-07-27
+
+- **Updated Google Drive download utility:**
+    - Modified `src/utils/download.py` to handle large folders by downloading a single zip file instead.
+    - The script now downloads the specified `.zip` file from a Google Drive link, extracts its contents to the target directory, and then removes the temporary zip file.
+    - This change addresses the `gdown` library's limitation of 50 files per folder download.
+
+## 2024-07-26
+
+- **Add Google Drive download utility:**
+    - Created `src/utils/download.py` to download data from a Google Drive folder link.
+    - The script includes logging and can be run from the command line.
+- **Update Dependencies:**
+    - Added `gdown` to `requirements.txt` to support Google Drive downloads.
+- **Update Documentation:**
+    - Updated `README.md` to include instructions on how to download the raw data excerpts using the new script.
+
 ## 2024-07-25
 
 - **Refactor data excerpt creation scripts:**
@@ -383,3 +400,47 @@ This file tracks the major steps and changes made to the repository.
             - Count of events with ambiguous classes in these communities
 
 - **Rationale:** The previous issue where Drought appeared as the dominant class (67.2%) was due to isolated Senf & Seidl events with "Other" class getting equal votes for ['Anthropogenic', 'Unknown', 'Drought'], with Drought winning alphabetically. The new logic ensures these ambiguous cases are properly assigned to "Unknown" instead. 
+
+# Progress Tracker
+
+## Phase 1: Initial Refactoring and Centralization
+
+- [X] **Centralize BBOX Definitions:** Moved all hardcoded bounding box coordinates from individual scripts into a single dictionary `EXCERPT_BOUNDING_BOXES` in `src/config/constants.py`.
+- [X] **Add CLI for BBOX Selection:** Modified all scripts in `data_excerpt_creation` to accept a `--bbox-name` command-line argument, allowing dynamic selection of the clipping area.
+- [X] **Remove File Size Reduction Logic:** Removed all code that automatically resized or altered data excerpts based on their file size to ensure consistent and predictable outputs.
+- [X] **Standardize Output Paths:** Updated all scripts to save their outputs to a structured directory path under `excerpts/`, incorporating the BBOX name (e.g., `excerpts/raw/cdi/les_landes/`).
+- [X] **Create `progress.md`:** Initialized this file to track all project changes.
+
+## Phase 2: Streamlining Execution
+
+- [X] **Create Master Script:** Developed `data_excerpt_creation/create_all_excerpts.py` to run all individual excerpt creation scripts from a single command.
+- [X] **Refactor Individual Scripts:** Converted the core logic of each script into a `main(bbox_name)` function, making them importable and callable from the master script.
+- [X] **Add Verbosity Control:** Implemented a `--verbose` flag in the master script and adjusted logging levels in individual scripts (`INFO` for summaries, `DEBUG` for details) to manage console output.
+- [X] **Add Timestamps:** Added timing logic to the master script to report the duration of each sub-task.
+
+## Phase 3: Final Polish & Separation of Concerns
+
+- [X] **Isolate Raw Data Excerpting:**
+    - Identified that `create_data_excerpts.py` operates on pre-processed data, not raw data.
+    - Created a new master script, `data_excerpt_creation/create_all_raw_excerpts.py`, which *only* runs the scripts for raw data sources (CDI, FirePolygons, FORMS, Health Monitoring, Senf-Seidl).
+    - Deleted the old `create_all_excerpts.py` to avoid confusion.
+- [X] **Improve Logging:**
+    - Reduced the log output for the CDI script to only show a final summary of files processed, instead of logging each one.
+- [X] **Improve Path Robustness:**
+    - Modified all excerpting scripts to replace spaces in bounding box names with underscores (e.g., `les landes` becomes `les_landes`) in the output filenames. This prevents potential issues with spaces in file paths.
+
+## Phase 4: User Experience Improvements
+
+- [X] **Add Progress Bar:** Implemented a `tqdm` progress bar in the `create_cdi_raster_excerpts.py` script to provide clear visual feedback during processing.
+- [X] **Silence Warnings:** Suppressed `RuntimeWarning` messages in the CDI script to reduce unnecessary noise in the console output.
+- [X] **Final Log Reduction:** Further refined the logging in the CDI script to ensure only the progress bar and a final summary are displayed at the `INFO` level.
+
+## Phase 5: Final Fixes and Refinements
+
+- [X] **Fix `NameError` in FORMS Script:** Resolved a `NameError` in `create_forms_raster_excerpt.py` that was preventing it from running.
+- [X] **Complete FORMS Script Refactoring:** Performed a major refactoring of the FORMS script, removing a large amount of obsolete code related to legacy file-size management. The script is now clean, simple, and consistent with the other excerpt tools.
+- [X] **Standardize Progress Bars:** Added `tqdm` progress bars to the `create_firepolygons_excerpts.py` and `create_forms_raster_excerpt.py` scripts to ensure a consistent and clean user experience across all tools.
+- [X] **Silence Fire Polygon Logs:** Suppressed verbose `INFO` logs from the `fiona` library within the fire polygons script to keep the console output tidy.
+
+## Task: Update `src/inference/preprocess_excerpts.py` for new excerpt structure
+- Updated `src/inference/preprocess_excerpts.py` to adapt to the new way excerpts are saved, i.e. under a subfolder with their name in `excerpts/raw/`. This ensures that the preprocessing script can find the raw data in the correct location after the refactoring of the excerpt creation process. 
